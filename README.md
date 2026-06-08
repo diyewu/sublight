@@ -54,6 +54,18 @@ Then run:
 sublight --help
 ```
 
+Install the optional desktop GUI dependencies:
+
+```bash
+pipx install "git+https://github.com/diyewu/sublight.git[gui]"
+```
+
+Run the GUI:
+
+```bash
+sublight-gui
+```
+
 ## Quick Start
 
 Generate an ASS subtitle file:
