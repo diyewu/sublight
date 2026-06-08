@@ -41,7 +41,8 @@ brew install ffmpeg
 7. Click `Apply Selection Globally` if the phrase should be highlighted everywhere.
 8. Use `Suggest` to review automatic keyword candidates, then add or ignore selected suggestions.
 9. Choose or edit a style preset.
-10. Export one of these outputs:
+10. Check the built-in style preview.
+11. Export one of these outputs:
    - `Export ASS`
    - `Export Green Overlay`
    - `Export 5s Preview`
@@ -49,6 +50,8 @@ brew install ffmpeg
    - `Burn Video`
 
 Project files can be saved as `.sublight.json` and reopened later. SubLight also keeps a best-effort autosave in the user config directory.
+
+Long-running GUI exports can be stopped with `Cancel Export`.
 
 ## CLI Workflow
 

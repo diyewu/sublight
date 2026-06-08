@@ -17,6 +17,8 @@ It turns ordinary `.srt` subtitles into keyword-highlighted `.ass` subtitles, gr
 - Override styles with JSON.
 - Review suggested keywords in the GUI and add selected terms globally.
 - Batch-export green-screen overlays from multiple built-in presets.
+- Preview style edits directly in the GUI.
+- Cancel long-running ffmpeg exports from the GUI.
 
 ## Requirements
 

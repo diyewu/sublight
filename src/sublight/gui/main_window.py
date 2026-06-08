@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import json
 from dataclasses import asdict
 from dataclasses import replace
@@ -37,6 +38,8 @@ from sublight.core.project import load_project, save_project
 from sublight.core.srt import parse_srt
 from sublight.exporters.ass_exporter import write_keyword_report
 from sublight.exporters.ffmpeg import (
+    FfmpegCancelled,
+    FfmpegRunner,
     ffprobe_duration,
     ffprobe_size,
     require_ffmpeg_tools,
@@ -102,6 +105,14 @@ class MainWindow(QMainWindow):
         self.batch_styles_list.setSelectionMode(QAbstractItemView.MultiSelection)
         for name in sorted(STYLE_PRESETS):
             self.batch_styles_list.addItem(name)
+        self.style_preview_label = QLabel()
+        self.style_preview_label.setAlignment(Qt.AlignCenter)
+        self.style_preview_label.setMinimumHeight(92)
+        self.style_preview_label.setTextFormat(Qt.RichText)
+        self.style_preview_label.setStyleSheet(
+            "background: #101418; border: 1px solid #303941; border-radius: 6px;"
+            " padding: 14px;"
+        )
 
         self.video_label = QLabel("No video imported")
         self.project_label = QLabel("Untitled project")
@@ -109,13 +120,19 @@ class MainWindow(QMainWindow):
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setTextVisible(False)
+        self.cancel_export_button = QPushButton("Cancel Export")
+        self.cancel_export_button.clicked.connect(self.cancel_export)
+        self.cancel_export_button.setEnabled(False)
         self.export_thread: QThread | None = None
         self.export_worker: ExportWorker | None = None
+        self.active_ffmpeg_runner: FfmpegRunner | None = None
 
+        self.connect_style_editor_signals()
         self.setCentralWidget(self.build_layout())
         self.refresh_recent_projects()
         self.load_style_into_editor(self.current_style())
         self.refresh_view()
+        self.refresh_style_preview()
         self.offer_autosave_restore()
 
     def int_spin(self, minimum: int, maximum: int) -> QSpinBox:
@@ -157,7 +174,10 @@ class MainWindow(QMainWindow):
         body.setColumnStretch(1, 4)
         body.setColumnStretch(2, 2)
         layout.addLayout(body, 1)
-        layout.addWidget(self.progress_bar)
+        progress_row = QHBoxLayout()
+        progress_row.addWidget(self.progress_bar, 1)
+        progress_row.addWidget(self.cancel_export_button)
+        layout.addLayout(progress_row)
         layout.addWidget(self.status_label)
         return root
 
@@ -242,6 +262,8 @@ class MainWindow(QMainWindow):
             button.clicked.connect(handler)
             style_buttons.addWidget(button)
         layout.addLayout(style_buttons)
+        layout.addWidget(QLabel("Preview"))
+        layout.addWidget(self.style_preview_label)
 
         layout.addWidget(self.video_label)
         layout.addWidget(QLabel("Batch overlay presets"))
@@ -407,7 +429,34 @@ class MainWindow(QMainWindow):
     def set_active_style(self, style_name: str) -> None:
         self.project.active_style = style_name
         self.load_style_into_editor(self.current_style())
+        self.refresh_style_preview()
         self.autosave_project()
+
+    def connect_style_editor_signals(self) -> None:
+        for line_edit in (
+            self.font_input,
+            self.primary_color_input,
+            self.highlight_color_input,
+            self.outline_color_input,
+            self.keyword_outline_color_input,
+            self.back_color_input,
+        ):
+            line_edit.textChanged.connect(self.refresh_style_preview)
+        for spin in (
+            self.font_size_spin,
+            self.margin_v_spin,
+            self.max_line_width_spin,
+            self.back_alpha_spin,
+            self.alignment_spin,
+            self.border_style_spin,
+            self.keyword_scale_spin,
+            self.outline_spin,
+            self.keyword_outline_spin,
+            self.shadow_spin,
+        ):
+            spin.valueChanged.connect(self.refresh_style_preview)
+        self.bold_check.toggled.connect(self.refresh_style_preview)
+        self.keyword_bold_check.toggled.connect(self.refresh_style_preview)
 
     def update_style_combo_items(self) -> None:
         current = self.project.active_style
@@ -446,6 +495,41 @@ class MainWindow(QMainWindow):
         self.shadow_spin.setValue(preset.shadow)
         self.alignment_spin.setValue(preset.alignment)
         self.border_style_spin.setValue(preset.border_style)
+        self.refresh_style_preview()
+
+    def refresh_style_preview(self, *args: object) -> None:
+        del args
+        preset = self.style_from_editor()
+        sample = "SubLight makes keywords pop"
+        if self.current_index is not None and self.current_index < len(self.project.cues):
+            sample = self.project.cues[self.current_index].text
+        if not sample.strip():
+            sample = "SubLight makes keywords pop"
+        keyword = next((rule.text for rule in self.project.keyword_rules if rule.enabled), "")
+        if not keyword or keyword not in sample:
+            keyword = "keywords" if "keywords" in sample else sample.split()[0]
+        text = html.escape(sample)
+        escaped_keyword = html.escape(keyword)
+        highlighted = (
+            f"<span style='color: {preset.highlight_color}; "
+            f"font-weight: {700 if preset.keyword_bold else 500};'>"
+            f"{escaped_keyword}</span>"
+        )
+        if escaped_keyword in text:
+            text = text.replace(escaped_keyword, highlighted, 1)
+        font_size = max(16, min(34, int(preset.font_size * 0.48)))
+        weight = 700 if preset.bold else 500
+        self.style_preview_label.setText(
+            "<div style='"
+            f"font-family: {html.escape(preset.font)};"
+            f"font-size: {font_size}px;"
+            f"font-weight: {weight};"
+            f"color: {preset.primary_color};"
+            f"text-shadow: 0 0 {preset.shadow}px {preset.outline_color};"
+            "'>"
+            f"{text}"
+            "</div>"
+        )
 
     def style_from_editor(self) -> StylePreset:
         return StylePreset(
@@ -662,13 +746,14 @@ class MainWindow(QMainWindow):
             duration = self.export_duration()
             self.start_export(
                 "Exporting green overlay...",
-                lambda: render_overlay(
+                lambda runner: render_overlay(
                     ass_path,
                     Path(path),
                     width=width,
                     height=height,
                     duration=duration,
                     fps=int(self.project.export_settings.get("fps", 30)),
+                    runner=runner.run,
                 ),
                 f"Exported overlay: {Path(path).name}",
             )
@@ -698,8 +783,10 @@ class MainWindow(QMainWindow):
             keywords = [rule.text for rule in self.project.keyword_rules if rule.enabled]
             base_name = Path(self.project.srt_path or "subtitles.srt").stem
 
-            def job() -> None:
+            def job(runner: FfmpegRunner) -> None:
                 for style_name in style_names:
+                    if runner.cancelled:
+                        raise FfmpegCancelled("Export cancelled")
                     preset = merge_style_preset(preset_name=style_name)
                     ass_path = output_dir / f"{base_name}.{style_name}.ass"
                     overlay_path = output_dir / f"{base_name}.{style_name}.mov"
@@ -719,6 +806,7 @@ class MainWindow(QMainWindow):
                         height=height,
                         duration=duration,
                         fps=fps,
+                        runner=runner.run,
                     )
 
             self.start_export(
@@ -748,7 +836,12 @@ class MainWindow(QMainWindow):
             self.write_ass_output(ass_path)
             self.start_export(
                 "Burning subtitles into video...",
-                lambda: burn_video(Path(self.project.video_path), ass_path, Path(path)),
+                lambda runner: burn_video(
+                    Path(self.project.video_path),
+                    ass_path,
+                    Path(path),
+                    runner=runner.run,
+                ),
                 f"Exported burned video: {Path(path).name}",
             )
         except Exception as exc:
@@ -776,12 +869,13 @@ class MainWindow(QMainWindow):
                 start_seconds = max(self.project.cues[self.current_index].start_ms / 1000 - 1, 0)
             self.start_export(
                 "Exporting preview segment...",
-                lambda: burn_preview_segment(
+                lambda runner: burn_preview_segment(
                     Path(self.project.video_path),
                     ass_path,
                     Path(path),
                     start_seconds=start_seconds,
                     duration_seconds=5.0,
+                    runner=runner.run,
                 ),
                 f"Exported preview: {Path(path).name}",
             )
@@ -862,6 +956,7 @@ class MainWindow(QMainWindow):
         self.project_label.setText(
             self.project_path.name if self.project_path else "Untitled project"
         )
+        self.refresh_style_preview()
 
     def refresh_subtitle_item(self, index: int) -> None:
         if index < 0 or index >= len(self.project.cues):
@@ -896,7 +991,7 @@ class MainWindow(QMainWindow):
     def start_export(
         self,
         status: str,
-        job: Callable[[], None],
+        job: Callable[[FfmpegRunner], None],
         success_message: str,
     ) -> None:
         if self.export_thread is not None:
@@ -905,10 +1000,13 @@ class MainWindow(QMainWindow):
 
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)
+        self.cancel_export_button.setEnabled(True)
         self.status_label.setText(status)
 
         self.export_thread = QThread()
-        self.export_worker = ExportWorker(job, success_message)
+        self.active_ffmpeg_runner = FfmpegRunner()
+        runner = self.active_ffmpeg_runner
+        self.export_worker = ExportWorker(lambda: job(runner), success_message)
         self.export_worker.moveToThread(self.export_thread)
         self.export_thread.started.connect(self.export_worker.run)
         self.export_worker.finished.connect(self.export_finished)
@@ -918,20 +1016,34 @@ class MainWindow(QMainWindow):
         self.export_thread.finished.connect(self.export_thread.deleteLater)
         self.export_thread.start()
 
+    def cancel_export(self) -> None:
+        if self.active_ffmpeg_runner is None:
+            return
+        self.active_ffmpeg_runner.cancel()
+        self.cancel_export_button.setEnabled(False)
+        self.status_label.setText("Cancelling export...")
+
     def export_finished(self, message: str) -> None:
         self.progress_bar.setVisible(False)
         self.progress_bar.setRange(0, 1)
+        self.cancel_export_button.setEnabled(False)
         self.status_label.setText(message)
         self.export_thread = None
         self.export_worker = None
+        self.active_ffmpeg_runner = None
 
     def export_failed(self, message: str) -> None:
         self.progress_bar.setVisible(False)
         self.progress_bar.setRange(0, 1)
-        self.status_label.setText(f"Export failed: {message}")
-        QMessageBox.critical(self, "Export failed", message)
+        self.cancel_export_button.setEnabled(False)
+        if "cancelled" in message.lower():
+            self.status_label.setText("Export cancelled")
+        else:
+            self.status_label.setText(f"Export failed: {message}")
+            QMessageBox.critical(self, "Export failed", message)
         self.export_thread = None
         self.export_worker = None
+        self.active_ffmpeg_runner = None
 
     def show_error(self, title: str, exc: Exception) -> None:
         QMessageBox.critical(self, title, str(exc))

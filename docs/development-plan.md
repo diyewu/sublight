@@ -118,13 +118,14 @@ Key outputs:
 - Best-effort autosave and restore prompt.
 - Keyword suggestion accept/ignore controls.
 - Batch overlay export for selected built-in presets.
+- Style preview panel.
+- Export cancellation for ffmpeg jobs.
 - Example SRT, project, style, and tiny sample video.
 
 ## Next Product Slices
 
 The next useful slices after M7 are:
 
-- Real style preview panel.
-- Export queue and cancel button.
+- Export queue.
 - GitHub Releases artifact validation.
 - Tutorial video.

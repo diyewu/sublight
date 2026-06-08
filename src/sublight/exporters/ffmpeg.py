@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import subprocess
 import shutil
+import time
 from pathlib import Path
+from threading import Lock
 
 
 def find_tool(name: str) -> str | None:
@@ -73,3 +75,58 @@ def ffmpeg_filter_path(path: Path) -> str:
 def run_ffmpeg(cmd: list[str]) -> None:
     require_tool("ffmpeg")
     subprocess.run(cmd, check=True)
+
+
+class FfmpegCancelled(RuntimeError):
+    pass
+
+
+class FfmpegRunner:
+    def __init__(self) -> None:
+        self._process: subprocess.Popen[bytes] | None = None
+        self._cancelled = False
+        self._lock = Lock()
+
+    @property
+    def cancelled(self) -> bool:
+        with self._lock:
+            return self._cancelled
+
+    def cancel(self) -> None:
+        with self._lock:
+            self._cancelled = True
+            process = self._process
+        if process is not None and process.poll() is None:
+            process.terminate()
+
+    def run(self, cmd: list[str]) -> None:
+        require_tool("ffmpeg")
+        if self.cancelled:
+            raise FfmpegCancelled("Export cancelled")
+
+        process = subprocess.Popen(cmd)
+        with self._lock:
+            self._process = process
+
+        try:
+            while True:
+                return_code = process.poll()
+                if return_code is not None:
+                    if self.cancelled:
+                        raise FfmpegCancelled("Export cancelled")
+                    if return_code:
+                        raise subprocess.CalledProcessError(return_code, cmd)
+                    return
+                if self.cancelled:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                    raise FfmpegCancelled("Export cancelled")
+                time.sleep(0.1)
+        finally:
+            with self._lock:
+                if self._process is process:
+                    self._process = None

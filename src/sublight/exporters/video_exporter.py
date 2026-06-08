@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from .ffmpeg import ffmpeg_filter_path, run_ffmpeg
 
 
-def burn_video(video_path: Path, ass_path: Path, output_path: Path) -> None:
+def burn_video(
+    video_path: Path,
+    ass_path: Path,
+    output_path: Path,
+    *,
+    runner: Callable[[list[str]], None] | None = None,
+) -> None:
     cmd = [
         "ffmpeg",
         "-y",
@@ -23,7 +30,7 @@ def burn_video(video_path: Path, ass_path: Path, output_path: Path) -> None:
         "copy",
         str(output_path),
     ]
-    run_ffmpeg(cmd)
+    (runner or run_ffmpeg)(cmd)
 
 
 def burn_preview_segment(
@@ -33,6 +40,7 @@ def burn_preview_segment(
     *,
     start_seconds: float,
     duration_seconds: float = 5.0,
+    runner: Callable[[list[str]], None] | None = None,
 ) -> None:
     cmd = [
         "ffmpeg",
@@ -55,7 +63,7 @@ def burn_preview_segment(
         "copy",
         str(output_path),
     ]
-    run_ffmpeg(cmd)
+    (runner or run_ffmpeg)(cmd)
 
 
 def render_overlay(
@@ -66,6 +74,7 @@ def render_overlay(
     height: int,
     duration: float,
     fps: int,
+    runner: Callable[[list[str]], None] | None = None,
 ) -> None:
     cmd = [
         "ffmpeg",
@@ -80,4 +89,4 @@ def render_overlay(
         "qtrle",
         str(output_path),
     ]
-    run_ffmpeg(cmd)
+    (runner or run_ffmpeg)(cmd)

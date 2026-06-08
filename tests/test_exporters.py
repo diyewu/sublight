@@ -4,8 +4,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from sublight.exporters.ffmpeg import require_tool
-from sublight.exporters.video_exporter import burn_preview_segment
+from sublight.exporters.ffmpeg import FfmpegCancelled, FfmpegRunner, require_tool
+from sublight.exporters.video_exporter import burn_preview_segment, burn_video
 
 
 class FfmpegHelperTests(unittest.TestCase):
@@ -35,6 +35,30 @@ class FfmpegHelperTests(unittest.TestCase):
         self.assertIn("-t", cmd)
         self.assertIn("5.000", cmd)
         self.assertEqual(cmd[-1], "preview.mp4")
+
+    def test_burn_video_accepts_custom_runner(self) -> None:
+        captured: dict[str, list[str]] = {}
+
+        def fake_runner(cmd: list[str]) -> None:
+            captured["cmd"] = cmd
+
+        burn_video(
+            Path("input.mp4"),
+            Path("captions.ass"),
+            Path("output.mp4"),
+            runner=fake_runner,
+        )
+
+        self.assertEqual(captured["cmd"][0], "ffmpeg")
+        self.assertEqual(captured["cmd"][-1], "output.mp4")
+
+    def test_ffmpeg_runner_can_be_cancelled_before_start(self) -> None:
+        runner = FfmpegRunner()
+        runner.cancel()
+
+        with patch("sublight.exporters.ffmpeg.require_tool", return_value="ffmpeg"):
+            with self.assertRaises(FfmpegCancelled):
+                runner.run(["ffmpeg", "-version"])
 
 
 if __name__ == "__main__":

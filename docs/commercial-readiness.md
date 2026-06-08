@@ -4,7 +4,7 @@ This document tracks what SubLight needs before it can be considered usable by n
 
 ## Current Position
 
-SubLight has a working CLI, reusable core modules, a desktop GUI MVP, project files, editable styles, asynchronous exports, keyword suggestion controls, batch preset overlay export, best-effort autosave recovery, sample assets, a static landing page, packaging scaffolding, and public contribution templates.
+SubLight has a working CLI, reusable core modules, a desktop GUI MVP, project files, editable styles, style preview, asynchronous cancellable exports, keyword suggestion controls, batch preset overlay export, best-effort autosave recovery, sample assets, a static landing page, packaging scaffolding, and public contribution templates.
 
 The product is still alpha. It should be treated as an open-source prototype moving toward commercial quality, not a finished paid product.
 
@@ -25,7 +25,6 @@ The product is still alpha. It should be treated as an open-source prototype mov
 - Crash/error reporting policy that respects local creator files.
 - Privacy policy explaining that local files stay local.
 - Versioned project file migration tests.
-- Style preview panel before full export.
 - Preset library designed around creator use cases.
 - Clear support channel and response expectations.
 
