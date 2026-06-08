@@ -3,7 +3,7 @@
 from pathlib import Path
 
 
-ROOT = Path.cwd()
+ROOT = Path(__file__).resolve().parents[1]
 
 
 a = Analysis(
