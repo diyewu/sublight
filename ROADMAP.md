@@ -135,7 +135,7 @@ Acceptance criteria:
 
 ## M6: Desktop Packaging
 
-Status: implemented as build scaffolding.
+Status: implemented and release-validated for alpha builds.
 
 Goal: ship installable builds for normal users.
 
@@ -149,6 +149,7 @@ Deliverables:
 - Example project.
 - GitHub Actions release workflow.
 - Decide whether to bundle ffmpeg or guide installation.
+- Validated `v0.1.0-alpha.3` GitHub Release with macOS and Windows zip artifacts.
 
 Acceptance criteria:
 
@@ -193,6 +194,6 @@ Possible future features:
 
 ## Current Priority
 
-The current engineering priority is **Beta Readiness**.
+The current engineering priority is **Packaged App Smoke Testing**.
 
-Finish release validation before calling SubLight beta-ready.
+Download the `v0.1.0-alpha.3` macOS and Windows artifacts, smoke-test GUI launch/export on real machines, then tighten ffmpeg onboarding, signing/notarization, and GUI regression coverage before calling SubLight beta-ready.

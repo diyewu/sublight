@@ -83,6 +83,12 @@ pyinstaller packaging/sublight-gui.spec --noconfirm
 
 GitHub Actions builds macOS and Windows artifacts from tags matching `v*` or manual workflow runs.
 
+Latest validated prerelease:
+
+- [v0.1.0-alpha.3](https://github.com/diyewu/sublight/releases/tag/v0.1.0-alpha.3)
+- `SubLight-macOS.zip`
+- `SubLight-Windows.zip`
+
 Current packaging strategy:
 
 - The app bundles SubLight and PySide6.

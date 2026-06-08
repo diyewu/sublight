@@ -89,7 +89,7 @@ Key outputs:
 
 ## M6: Desktop Packaging
 
-Status: implemented as build scaffolding.
+Status: implemented and release-validated for alpha builds.
 
 Purpose: make installable app artifacts possible through repeatable packaging.
 
@@ -100,6 +100,7 @@ Key outputs:
 - App icon asset.
 - Recent project config.
 - Example project and style files.
+- Validated `v0.1.0-alpha.3` GitHub Release with macOS and Windows zip artifacts.
 
 ## M7: Commercial Readiness
 
@@ -128,4 +129,6 @@ Key outputs:
 
 The next useful slices after M7 are:
 
-- GitHub Releases artifact validation.
+- Smoke-test the downloaded macOS and Windows desktop artifacts on real machines.
+- Improve `ffmpeg` onboarding for non-technical users.
+- Add GUI regression tests for project editing, style editing, and export queue behavior.
