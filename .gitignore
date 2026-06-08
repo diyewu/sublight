@@ -1,0 +1,26 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+dist/
+build/
+
+# Generated media and subtitle artifacts
+*.ass
+*.mov
+*.mp4
+*.mkv
+*.webm
+*.srt
+*.png
+*.jpg
+*.jpeg
+
+# Local editor and OS files
+.DS_Store
+.idea/
+.vscode/
