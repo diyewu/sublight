@@ -6,6 +6,8 @@ from pathlib import Path
 
 from sublight.core.highlights import find_keyword_spans
 from sublight.core.keywords import load_keywords
+from sublight.core.models import HighlightSpan
+from sublight.core.spans import add_manual_spans, ranges_are_covered, remove_manual_spans
 from sublight.core.srt import parse_srt, parse_srt_time
 from sublight.styles.ass import ass_color, render_ass
 from sublight.styles.presets import merge_style_preset
@@ -44,6 +46,28 @@ class KeywordTests(unittest.TestCase):
     def test_find_keyword_spans_respects_ascii_word_boundary(self) -> None:
         spans = find_keyword_spans("Codex and myCodex are different", ["Codex"])
         self.assertEqual(spans, [(0, 5)])
+
+
+class SpanTests(unittest.TestCase):
+    def test_add_manual_spans_merges_touching_ranges(self) -> None:
+        spans = (HighlightSpan(2, 5),)
+
+        merged = add_manual_spans(spans, [(5, 8)], text_length=10)
+
+        self.assertEqual([(span.start, span.end) for span in merged], [(2, 8)])
+
+    def test_remove_manual_spans_splits_existing_range(self) -> None:
+        spans = (HighlightSpan(2, 8),)
+
+        remaining = remove_manual_spans(spans, [(4, 6)], text_length=10)
+
+        self.assertEqual([(span.start, span.end) for span in remaining], [(2, 4), (6, 8)])
+
+    def test_ranges_are_covered_requires_full_selected_range(self) -> None:
+        spans = (HighlightSpan(2, 5), HighlightSpan(6, 8))
+
+        self.assertTrue(ranges_are_covered(spans, [(2, 5)], text_length=10))
+        self.assertFalse(ranges_are_covered(spans, [(2, 8)], text_length=10))
 
 
 class StyleTests(unittest.TestCase):

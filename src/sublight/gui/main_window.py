@@ -8,7 +8,8 @@ from dataclasses import replace
 from pathlib import Path
 from collections.abc import Callable
 
-from PySide6.QtCore import Qt, QThread
+from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -36,6 +37,7 @@ from sublight.config import autosave_project_path, load_recent_projects, remembe
 from sublight.core.keywords import auto_keywords
 from sublight.core.models import Cue, HighlightSpan, KeywordRule, Project
 from sublight.core.project import load_project, save_project
+from sublight.core.spans import add_manual_spans, ranges_are_covered, remove_manual_spans
 from sublight.core.srt import parse_srt
 from sublight.exporters.ass_exporter import write_keyword_report
 from sublight.exporters.ffmpeg import (
@@ -55,11 +57,44 @@ from sublight.styles.presets import STYLE_PRESETS, merge_style_preset
 from sublight.styles.schema import StylePreset
 
 
+STYLE_DISPLAY_NAMES = {
+    "bold-yellow": "醒目黄",
+    "clean-blue": "清爽蓝",
+    "warm-orange": "暖橙",
+    "large-focus": "大字强调",
+    "soft-box": "柔和底框",
+}
+
+
+def style_display_name(style_name: str) -> str:
+    return STYLE_DISPLAY_NAMES.get(style_name, style_name)
+
+
 @dataclass(frozen=True)
 class ExportQueueItem:
     label: str
     job: Callable[[FfmpegRunner], None]
     success_message: str
+
+
+class SubtitleHighlightView(QTextEdit):
+    selection_finished = Signal(int, int)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setReadOnly(True)
+        self.setLineWrapMode(QTextEdit.WidgetWidth)
+        self.setPlaceholderText("导入 SRT 后，可直接拖选字幕文字进行高亮。再次拖选已高亮文字会取消高亮。")
+        self.setStyleSheet(
+            "QTextEdit { background: #121212; color: #f7f7f7; border: 1px solid #444;"
+            " padding: 14px; selection-background-color: #315a8a; }"
+        )
+
+    def mouseReleaseEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+        super().mouseReleaseEvent(event)
+        cursor = self.textCursor()
+        if cursor.hasSelection():
+            self.selection_finished.emit(cursor.selectionStart(), cursor.selectionEnd())
 
 
 class MainWindow(QMainWindow):
@@ -71,25 +106,31 @@ class MainWindow(QMainWindow):
         self.project = Project()
         self.project_path: Path | None = None
         self.current_index: int | None = None
+        self.cue_document_ranges: dict[int, tuple[int, int]] = {}
 
         self.subtitle_list = QListWidget()
         self.subtitle_list.currentRowChanged.connect(self.select_cue)
 
-        self.cue_editor = QTextEdit()
-        self.cue_editor.setPlaceholderText("Import an SRT file to start.")
+        self.subtitle_highlight_view = SubtitleHighlightView()
+        self.subtitle_highlight_view.selection_finished.connect(
+            self.toggle_document_selection_highlight
+        )
+        self.subtitle_highlight_view.cursorPositionChanged.connect(
+            self.sync_current_cue_from_document_cursor
+        )
         self.keyword_suggestions = QListWidget()
         self.keyword_suggestions.setSelectionMode(QAbstractItemView.MultiSelection)
 
         self.style_combo = QComboBox()
-        self.style_combo.addItems(sorted(STYLE_PRESETS))
-        self.style_combo.setCurrentText(self.project.active_style)
-        self.style_combo.currentTextChanged.connect(self.set_active_style)
+        for style_name in sorted(STYLE_PRESETS):
+            self.style_combo.addItem(style_display_name(style_name), style_name)
+        self.style_combo.currentIndexChanged.connect(self.set_active_style_from_combo)
         self.recent_combo = QComboBox()
-        self.recent_combo.addItem("Recent projects")
+        self.recent_combo.addItem("最近项目")
         self.recent_combo.activated.connect(self.open_recent_project)
 
         self.custom_style_name = QLineEdit()
-        self.custom_style_name.setPlaceholderText("Custom style name")
+        self.custom_style_name.setPlaceholderText("自定义样式名称")
         self.font_input = QLineEdit()
         self.font_size_spin = self.int_spin(8, 180)
         self.margin_v_spin = self.int_spin(0, 400)
@@ -100,8 +141,8 @@ class MainWindow(QMainWindow):
         self.keyword_outline_color_input = QLineEdit()
         self.back_color_input = QLineEdit()
         self.back_alpha_spin = self.int_spin(0, 255)
-        self.bold_check = QCheckBox("Bold")
-        self.keyword_bold_check = QCheckBox("Keyword bold")
+        self.bold_check = QCheckBox("普通文字加粗")
+        self.keyword_bold_check = QCheckBox("高亮文字加粗")
         self.keyword_scale_spin = self.double_spin(0.5, 2.0, 0.01)
         self.outline_spin = self.double_spin(0.0, 12.0, 0.1)
         self.keyword_outline_spin = self.double_spin(0.0, 14.0, 0.1)
@@ -111,7 +152,9 @@ class MainWindow(QMainWindow):
         self.batch_styles_list = QListWidget()
         self.batch_styles_list.setSelectionMode(QAbstractItemView.MultiSelection)
         for name in sorted(STYLE_PRESETS):
-            self.batch_styles_list.addItem(name)
+            item = QListWidgetItem(style_display_name(name))
+            item.setData(Qt.UserRole, name)
+            self.batch_styles_list.addItem(item)
         self.export_queue_list = QListWidget()
         self.export_queue_list.setMinimumHeight(96)
         self.style_preview_label = QLabel()
@@ -123,13 +166,13 @@ class MainWindow(QMainWindow):
             " padding: 14px;"
         )
 
-        self.video_label = QLabel("No video imported")
-        self.project_label = QLabel("Untitled project")
-        self.status_label = QLabel("Ready")
+        self.video_label = QLabel("未导入视频")
+        self.project_label = QLabel("未命名项目")
+        self.status_label = QLabel("就绪")
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setTextVisible(False)
-        self.cancel_export_button = QPushButton("Cancel Export")
+        self.cancel_export_button = QPushButton("取消导出")
         self.cancel_export_button.clicked.connect(self.cancel_export)
         self.cancel_export_button.setEnabled(False)
         self.export_thread: QThread | None = None
@@ -163,10 +206,10 @@ class MainWindow(QMainWindow):
 
         top_bar = QHBoxLayout()
         for label, handler in (
-            ("Import SRT", self.import_srt),
-            ("Import Video", self.import_video),
-            ("Open Project", self.open_project),
-            ("Save Project", self.save_project_as),
+            ("导入字幕", self.import_srt),
+            ("导入视频", self.import_video),
+            ("打开项目", self.open_project),
+            ("保存项目", self.save_project_as),
         ):
             button = QPushButton(label)
             button.clicked.connect(handler)
@@ -178,7 +221,7 @@ class MainWindow(QMainWindow):
 
         body = QGridLayout()
         body.addWidget(self.build_subtitle_box(), 0, 0)
-        body.addWidget(self.build_editor_box(), 0, 1)
+        body.addWidget(self.build_highlight_box(), 0, 1)
         body.addWidget(self.build_style_export_box(), 0, 2)
         body.setColumnStretch(0, 2)
         body.setColumnStretch(1, 4)
@@ -192,68 +235,45 @@ class MainWindow(QMainWindow):
         return root
 
     def build_subtitle_box(self) -> QGroupBox:
-        box = QGroupBox("Subtitles")
+        box = QGroupBox("字幕列表")
         layout = QVBoxLayout(box)
         layout.addWidget(self.subtitle_list)
         return box
 
-    def build_editor_box(self) -> QGroupBox:
-        box = QGroupBox("Cue Editor")
+    def build_highlight_box(self) -> QGroupBox:
+        box = QGroupBox("字幕高亮")
         layout = QVBoxLayout(box)
-        layout.addWidget(self.cue_editor)
-
-        controls = QHBoxLayout()
-        for label, handler in (
-            ("Highlight Selection", self.highlight_selection),
-            ("Clear Cue Highlights", self.clear_cue_highlights),
-            ("Apply Selection Globally", self.apply_selection_globally),
-        ):
-            button = QPushButton(label)
-            button.clicked.connect(handler)
-            controls.addWidget(button)
-        layout.addLayout(controls)
-
-        suggestions = QGroupBox("Keyword Suggestions")
-        suggestions_layout = QVBoxLayout(suggestions)
-        suggestions_layout.addWidget(self.keyword_suggestions)
-        suggestion_controls = QHBoxLayout()
-        for label, handler in (
-            ("Suggest", self.refresh_keyword_suggestions),
-            ("Add Selected", self.add_selected_keyword_suggestions),
-            ("Ignore Selected", self.ignore_selected_keyword_suggestions),
-        ):
-            button = QPushButton(label)
-            button.clicked.connect(handler)
-            suggestion_controls.addWidget(button)
-        suggestions_layout.addLayout(suggestion_controls)
-        layout.addWidget(suggestions)
+        hint = QLabel("直接在下方字幕中拖选文字：未高亮会变成高亮，已高亮会取消。")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        layout.addWidget(self.subtitle_highlight_view)
         return box
 
     def build_style_export_box(self) -> QGroupBox:
-        box = QGroupBox("Style and Export")
+        box = QGroupBox("样式与导出")
         layout = QVBoxLayout(box)
-        layout.addWidget(QLabel("Style preset"))
+        layout.addWidget(QLabel("样式预设"))
         layout.addWidget(self.style_combo)
         layout.addWidget(self.custom_style_name)
 
         style_grid = QGridLayout()
         style_fields = [
-            ("Font", self.font_input),
-            ("Font size", self.font_size_spin),
-            ("Bottom margin", self.margin_v_spin),
-            ("Max line width", self.max_line_width_spin),
-            ("Text color", self.primary_color_input),
-            ("Highlight", self.highlight_color_input),
-            ("Outline color", self.outline_color_input),
-            ("Keyword outline", self.keyword_outline_color_input),
-            ("Box color", self.back_color_input),
-            ("Box alpha", self.back_alpha_spin),
-            ("Keyword scale", self.keyword_scale_spin),
-            ("Outline", self.outline_spin),
-            ("Keyword outline size", self.keyword_outline_spin),
-            ("Shadow", self.shadow_spin),
-            ("Alignment", self.alignment_spin),
-            ("Border style", self.border_style_spin),
+            ("字体", self.font_input),
+            ("字号", self.font_size_spin),
+            ("底部边距", self.margin_v_spin),
+            ("最大行宽", self.max_line_width_spin),
+            ("普通颜色", self.primary_color_input),
+            ("高亮颜色", self.highlight_color_input),
+            ("描边颜色", self.outline_color_input),
+            ("高亮描边", self.keyword_outline_color_input),
+            ("底框颜色", self.back_color_input),
+            ("底框透明度", self.back_alpha_spin),
+            ("高亮缩放", self.keyword_scale_spin),
+            ("描边粗细", self.outline_spin),
+            ("高亮描边粗细", self.keyword_outline_spin),
+            ("阴影", self.shadow_spin),
+            ("对齐", self.alignment_spin),
+            ("边框样式", self.border_style_spin),
         ]
         for row, (label, widget) in enumerate(style_fields):
             style_grid.addWidget(QLabel(label), row, 0)
@@ -264,26 +284,26 @@ class MainWindow(QMainWindow):
 
         style_buttons = QHBoxLayout()
         for label, handler in (
-            ("Save Style", self.save_custom_style),
-            ("Import", self.import_style_json),
-            ("Export", self.export_style_json),
+            ("保存样式", self.save_custom_style),
+            ("导入样式", self.import_style_json),
+            ("导出样式", self.export_style_json),
         ):
             button = QPushButton(label)
             button.clicked.connect(handler)
             style_buttons.addWidget(button)
         layout.addLayout(style_buttons)
-        layout.addWidget(QLabel("Preview"))
+        layout.addWidget(QLabel("样式预览"))
         layout.addWidget(self.style_preview_label)
 
         layout.addWidget(self.video_label)
-        layout.addWidget(QLabel("Batch overlay presets"))
+        layout.addWidget(QLabel("批量导出预设"))
         layout.addWidget(self.batch_styles_list)
-        layout.addWidget(QLabel("Export queue"))
+        layout.addWidget(QLabel("导出队列"))
         layout.addWidget(self.export_queue_list)
         queue_buttons = QHBoxLayout()
         for label, handler in (
-            ("Start Queue", self.start_next_queued_export),
-            ("Clear Queue", self.clear_export_queue),
+            ("开始队列", self.start_next_queued_export),
+            ("清空队列", self.clear_export_queue),
         ):
             button = QPushButton(label)
             button.clicked.connect(handler)
@@ -291,11 +311,11 @@ class MainWindow(QMainWindow):
         layout.addLayout(queue_buttons)
 
         for label, handler in (
-            ("Export ASS", self.export_ass),
-            ("Export Green Overlay", self.export_green_overlay),
-            ("Export 5s Preview", self.export_preview_segment),
-            ("Export Selected Presets", self.export_selected_presets),
-            ("Burn Video", self.export_burned_video),
+            ("导出 ASS 字幕", self.export_ass),
+            ("导出绿幕字幕层", self.export_green_overlay),
+            ("导出 5 秒预览", self.export_preview_segment),
+            ("导出选中预设", self.export_selected_presets),
+            ("烧录到视频", self.export_burned_video),
         ):
             button = QPushButton(label)
             button.clicked.connect(handler)
@@ -307,99 +327,98 @@ class MainWindow(QMainWindow):
     def import_srt(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Import SRT",
+            "导入 SRT 字幕",
             "",
-            "SubRip subtitles (*.srt)",
+            "SRT 字幕 (*.srt)",
         )
         if not path:
             return
         try:
             cues = parse_srt(Path(path))
         except Exception as exc:
-            self.show_error("Failed to import SRT", exc)
+            self.show_error("导入字幕失败", exc)
             return
         self.project.srt_path = path
         self.project.cues = cues
         self.current_index = 0 if cues else None
         self.refresh_view()
-        self.refresh_keyword_suggestions()
         self.autosave_project()
-        self.status_label.setText(f"Imported {len(cues)} subtitle cues")
+        self.status_label.setText(f"已导入 {len(cues)} 条字幕")
 
     def import_video(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Import Video",
+            "导入视频",
             "",
-            "Video files (*.mp4 *.mov *.mkv *.webm);;All files (*)",
+            "视频文件 (*.mp4 *.mov *.mkv *.webm);;所有文件 (*)",
         )
         if not path:
             return
         self.project.video_path = path
         self.refresh_view()
         self.autosave_project()
-        self.status_label.setText(f"Imported video: {Path(path).name}")
+        self.status_label.setText(f"已导入视频：{Path(path).name}")
 
     def open_project(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Open SubLight Project",
+            "打开 SubLight 项目",
             "",
-            "SubLight project (*.sublight.json);;JSON files (*.json)",
+            "SubLight 项目 (*.sublight.json);;JSON 文件 (*.json)",
         )
         if not path:
             return
         try:
             self.project = load_project(Path(path))
         except Exception as exc:
-            self.show_error("Failed to open project", exc)
+            self.show_error("打开项目失败", exc)
             return
         self.project_path = Path(path)
         self.remember_current_project()
         self.current_index = 0 if self.project.cues else None
         self.refresh_view()
         self.autosave_project()
-        self.status_label.setText(f"Opened project: {Path(path).name}")
+        self.status_label.setText(f"已打开项目：{Path(path).name}")
 
     def save_project_as(self) -> None:
         default_path = str(self.project_path or Path.cwd() / "project.sublight.json")
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "Save SubLight Project",
+            "保存 SubLight 项目",
             default_path,
-            "SubLight project (*.sublight.json);;JSON files (*.json)",
+            "SubLight 项目 (*.sublight.json);;JSON 文件 (*.json)",
         )
         if not path:
             return
         try:
             save_project(self.project, Path(path))
         except Exception as exc:
-            self.show_error("Failed to save project", exc)
+            self.show_error("保存项目失败", exc)
             return
         self.project_path = Path(path)
         self.remember_current_project()
         self.refresh_view()
         self.autosave_project()
-        self.status_label.setText(f"Saved project: {Path(path).name}")
+        self.status_label.setText(f"已保存项目：{Path(path).name}")
 
     def open_recent_project(self, index: int) -> None:
         if index <= 0:
             return
         path = Path(self.recent_combo.itemData(index))
         if not path.exists():
-            self.status_label.setText(f"Recent project no longer exists: {path}")
+            self.status_label.setText(f"最近项目不存在：{path}")
             return
         try:
             self.project = load_project(path)
         except Exception as exc:
-            self.show_error("Failed to open recent project", exc)
+            self.show_error("打开最近项目失败", exc)
             return
         self.project_path = path
         self.remember_current_project()
         self.current_index = 0 if self.project.cues else None
         self.refresh_view()
         self.autosave_project()
-        self.status_label.setText(f"Opened project: {path.name}")
+        self.status_label.setText(f"已打开项目：{path.name}")
 
     def remember_current_project(self) -> None:
         if self.project_path is None:
@@ -413,8 +432,8 @@ class MainWindow(QMainWindow):
             return
         answer = QMessageBox.question(
             self,
-            "Restore autosave",
-            "SubLight found an autosaved project. Restore it?",
+            "恢复自动保存",
+            "SubLight 找到一个自动保存的项目，是否恢复？",
             QMessageBox.Yes | QMessageBox.No,
         )
         if answer != QMessageBox.Yes:
@@ -422,17 +441,17 @@ class MainWindow(QMainWindow):
         try:
             self.project = load_project(path)
         except Exception as exc:
-            self.show_error("Failed to restore autosave", exc)
+            self.show_error("恢复自动保存失败", exc)
             return
         self.project_path = None
         self.current_index = 0 if self.project.cues else None
         self.refresh_view()
-        self.status_label.setText(f"Restored autosave: {path.name}")
+        self.status_label.setText(f"已恢复自动保存：{path.name}")
 
     def refresh_recent_projects(self) -> None:
         self.recent_combo.blockSignals(True)
         self.recent_combo.clear()
-        self.recent_combo.addItem("Recent projects")
+        self.recent_combo.addItem("最近项目")
         for item in load_recent_projects():
             path = Path(item)
             self.recent_combo.addItem(path.name, str(path))
@@ -441,11 +460,16 @@ class MainWindow(QMainWindow):
     def select_cue(self, row: int) -> None:
         if row < 0 or row >= len(self.project.cues):
             self.current_index = None
-            self.cue_editor.clear()
             return
-        self.commit_editor_text()
         self.current_index = row
-        self.cue_editor.setPlainText(self.project.cues[row].text)
+        self.focus_cue_in_highlight_view(row)
+        self.refresh_style_preview()
+
+    def set_active_style_from_combo(self, index: int) -> None:
+        style_name = self.style_combo.itemData(index)
+        if not style_name:
+            return
+        self.set_active_style(str(style_name))
 
     def set_active_style(self, style_name: str) -> None:
         self.project.active_style = style_name
@@ -484,9 +508,13 @@ class MainWindow(QMainWindow):
         names = sorted(set(STYLE_PRESETS) | set(self.project.custom_styles))
         self.style_combo.blockSignals(True)
         self.style_combo.clear()
-        self.style_combo.addItems(names)
-        if current in names:
-            self.style_combo.setCurrentText(current)
+        current_index = 0
+        for index, name in enumerate(names):
+            self.style_combo.addItem(style_display_name(name), name)
+            if name == current:
+                current_index = index
+        if names:
+            self.style_combo.setCurrentIndex(current_index)
         self.style_combo.blockSignals(False)
 
     def current_style(self) -> StylePreset:
@@ -521,14 +549,14 @@ class MainWindow(QMainWindow):
     def refresh_style_preview(self, *args: object) -> None:
         del args
         preset = self.style_from_editor()
-        sample = "SubLight makes keywords pop"
+        sample = "SubLight 让关键词更醒目"
         if self.current_index is not None and self.current_index < len(self.project.cues):
             sample = self.project.cues[self.current_index].text
         if not sample.strip():
-            sample = "SubLight makes keywords pop"
+            sample = "SubLight 让关键词更醒目"
         keyword = next((rule.text for rule in self.project.keyword_rules if rule.enabled), "")
         if not keyword or keyword not in sample:
-            keyword = "keywords" if "keywords" in sample else sample.split()[0]
+            keyword = sample[: max(1, min(3, len(sample)))]
         text = html.escape(sample)
         escaped_keyword = html.escape(keyword)
         highlighted = (
@@ -551,6 +579,7 @@ class MainWindow(QMainWindow):
             f"{text}"
             "</div>"
         )
+        self.refresh_subtitle_document()
 
     def style_from_editor(self) -> StylePreset:
         return StylePreset(
@@ -575,24 +604,187 @@ class MainWindow(QMainWindow):
             border_style=self.border_style_spin.value(),
         )
 
+    def refresh_subtitle_document(self) -> None:
+        if not hasattr(self, "subtitle_highlight_view"):
+            return
+        view = self.subtitle_highlight_view
+        scrollbar_value = view.verticalScrollBar().value()
+        cursor_position = view.textCursor().position()
+        view.blockSignals(True)
+        view.clear()
+        self.cue_document_ranges = {}
+
+        preset = self.style_from_editor()
+        base_format = self.subtitle_text_format(preset, highlighted=False)
+        highlight_format = self.subtitle_text_format(preset, highlighted=True)
+        prefix_format = QTextCharFormat(base_format)
+        prefix_format.setForeground(QColor("#8f969c"))
+        prefix_format.setFontWeight(QFont.Bold)
+
+        cursor = QTextCursor(view.document())
+        for index, cue in enumerate(self.project.cues):
+            prefix = f"{index + 1:03d}  "
+            cursor.insertText(prefix, prefix_format)
+            text_start = cursor.position()
+            cursor.insertText(cue.text, base_format)
+            text_end = cursor.position()
+            self.cue_document_ranges[index] = (text_start, text_end)
+
+            for span in cue.manual_highlights:
+                start = max(0, min(span.start, len(cue.text)))
+                end = max(0, min(span.end, len(cue.text)))
+                if start >= end:
+                    continue
+                span_cursor = QTextCursor(view.document())
+                span_cursor.setPosition(text_start + start)
+                span_cursor.setPosition(text_start + end, QTextCursor.KeepAnchor)
+                span_cursor.mergeCharFormat(highlight_format)
+
+            if index < len(self.project.cues) - 1:
+                cursor.setPosition(text_end)
+                cursor.insertText("\n\n", base_format)
+
+        restored_cursor = QTextCursor(view.document())
+        restored_cursor.setPosition(min(cursor_position, len(view.toPlainText())))
+        view.setTextCursor(restored_cursor)
+        view.verticalScrollBar().setValue(scrollbar_value)
+        view.blockSignals(False)
+
+    def subtitle_text_format(
+        self,
+        preset: StylePreset,
+        *,
+        highlighted: bool,
+    ) -> QTextCharFormat:
+        display_size = max(13, min(28, int(preset.font_size * 0.42)))
+        text_format = QTextCharFormat()
+        text_format.setFontFamily(preset.font)
+        text_format.setFontPointSize(
+            max(13, min(34, display_size * preset.keyword_scale))
+            if highlighted
+            else display_size
+        )
+        text_format.setForeground(
+            QColor(preset.highlight_color if highlighted else preset.primary_color)
+        )
+        text_format.setFontWeight(
+            QFont.Bold
+            if (preset.keyword_bold if highlighted else preset.bold)
+            else QFont.Normal
+        )
+        return text_format
+
+    def toggle_document_selection_highlight(self, selection_start: int, selection_end: int) -> None:
+        if selection_start == selection_end:
+            return
+        ranges_by_cue = self.cue_ranges_for_document_selection(selection_start, selection_end)
+        if not ranges_by_cue:
+            self.status_label.setText("请拖选字幕正文，不要只选择序号或空白。")
+            return
+
+        removing = all(
+            ranges_are_covered(
+                self.project.cues[index].manual_highlights,
+                ranges,
+                text_length=len(self.project.cues[index].text),
+            )
+            for index, ranges in ranges_by_cue.items()
+        )
+
+        changed_indexes: list[int] = []
+        for index, ranges in ranges_by_cue.items():
+            cue = self.project.cues[index]
+            spans = (
+                remove_manual_spans(
+                    cue.manual_highlights,
+                    ranges,
+                    text_length=len(cue.text),
+                )
+                if removing
+                else add_manual_spans(
+                    cue.manual_highlights,
+                    ranges,
+                    text_length=len(cue.text),
+                )
+            )
+            if spans != cue.manual_highlights:
+                self.project.cues[index] = replace(cue, manual_highlights=spans)
+                changed_indexes.append(index)
+
+        if not changed_indexes:
+            self.status_label.setText("高亮没有变化")
+            return
+
+        self.current_index = changed_indexes[0]
+        self.refresh_subtitle_items(changed_indexes)
+        self.refresh_subtitle_document()
+        self.focus_cue_in_highlight_view(self.current_index)
+        self.autosave_project()
+        action = "取消高亮" if removing else "添加高亮"
+        self.status_label.setText(f"已{action}：{len(changed_indexes)} 条字幕")
+
+    def cue_ranges_for_document_selection(
+        self,
+        selection_start: int,
+        selection_end: int,
+    ) -> dict[int, list[tuple[int, int]]]:
+        start = min(selection_start, selection_end)
+        end = max(selection_start, selection_end)
+        ranges_by_cue: dict[int, list[tuple[int, int]]] = {}
+        for index, (text_start, text_end) in self.cue_document_ranges.items():
+            overlap_start = max(start, text_start)
+            overlap_end = min(end, text_end)
+            if overlap_start >= overlap_end:
+                continue
+            ranges_by_cue.setdefault(index, []).append(
+                (overlap_start - text_start, overlap_end - text_start)
+            )
+        return ranges_by_cue
+
+    def sync_current_cue_from_document_cursor(self) -> None:
+        position = self.subtitle_highlight_view.textCursor().position()
+        index = self.cue_index_at_document_position(position)
+        if index is None or index == self.current_index:
+            return
+        self.current_index = index
+        self.subtitle_list.blockSignals(True)
+        self.subtitle_list.setCurrentRow(index)
+        self.subtitle_list.blockSignals(False)
+        self.refresh_style_preview()
+
+    def cue_index_at_document_position(self, position: int) -> int | None:
+        for index, (start, end) in self.cue_document_ranges.items():
+            if start <= position <= end:
+                return index
+        return None
+
+    def focus_cue_in_highlight_view(self, index: int) -> None:
+        if index not in self.cue_document_ranges:
+            return
+        text_start, _ = self.cue_document_ranges[index]
+        cursor = QTextCursor(self.subtitle_highlight_view.document())
+        cursor.setPosition(text_start)
+        self.subtitle_highlight_view.setTextCursor(cursor)
+        self.subtitle_highlight_view.ensureCursorVisible()
+
     def save_custom_style(self) -> None:
         name = self.custom_style_name.text().strip()
         if not name:
-            self.status_label.setText("Enter a custom style name first")
+            self.status_label.setText("请先输入自定义样式名称")
             return
         self.project.custom_styles[name] = asdict(self.style_from_editor())
         self.project.active_style = name
         self.update_style_combo_items()
         self.style_combo.setCurrentText(name)
         self.autosave_project()
-        self.status_label.setText(f"Saved style: {name}")
+        self.status_label.setText(f"已保存样式：{name}")
 
     def import_style_json(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Import Style JSON",
+            "导入样式 JSON",
             "",
-            "JSON files (*.json)",
+            "JSON 文件 (*.json)",
         )
         if not path:
             return
@@ -600,7 +792,7 @@ class MainWindow(QMainWindow):
             data = json.loads(Path(path).read_text(encoding="utf-8"))
             preset = merge_style_preset(preset_name="bold-yellow", overrides=data)
         except Exception as exc:
-            self.show_error("Failed to import style", exc)
+            self.show_error("导入样式失败", exc)
             return
         name = Path(path).stem
         self.project.custom_styles[name] = asdict(preset)
@@ -608,14 +800,14 @@ class MainWindow(QMainWindow):
         self.update_style_combo_items()
         self.load_style_into_editor(preset)
         self.autosave_project()
-        self.status_label.setText(f"Imported style: {name}")
+        self.status_label.setText(f"已导入样式：{name}")
 
     def export_style_json(self) -> None:
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "Export Style JSON",
+            "导出样式 JSON",
             f"{self.project.active_style}.json",
-            "JSON files (*.json)",
+            "JSON 文件 (*.json)",
         )
         if not path:
             return
@@ -626,56 +818,43 @@ class MainWindow(QMainWindow):
                 encoding="utf-8",
             )
         except Exception as exc:
-            self.show_error("Failed to export style", exc)
+            self.show_error("导出样式失败", exc)
             return
-        self.status_label.setText(f"Exported style: {Path(path).name}")
+        self.status_label.setText(f"已导出样式：{Path(path).name}")
 
     def highlight_selection(self) -> None:
-        index = self.require_current_cue()
-        if index is None:
+        cursor = self.subtitle_highlight_view.textCursor()
+        if not cursor.hasSelection():
+            self.status_label.setText("请直接在字幕高亮区拖选文字")
             return
-        cursor = self.cue_editor.textCursor()
-        start = cursor.selectionStart()
-        end = cursor.selectionEnd()
-        if start == end:
-            self.status_label.setText("Select text in the cue editor first")
-            return
-        self.commit_editor_text()
-        cue = self.project.cues[index]
-        spans = cue.manual_highlights + (
-            HighlightSpan(start=start, end=end, source="manual"),
-        )
-        self.project.cues[index] = replace(cue, manual_highlights=spans)
-        self.refresh_subtitle_item(index)
-        self.autosave_project()
-        self.status_label.setText("Highlighted selected text")
+        self.toggle_document_selection_highlight(cursor.selectionStart(), cursor.selectionEnd())
 
     def clear_cue_highlights(self) -> None:
         index = self.require_current_cue()
         if index is None:
             return
-        self.commit_editor_text()
         cue = self.project.cues[index]
         self.project.cues[index] = replace(cue, manual_highlights=())
         self.refresh_subtitle_item(index)
+        self.refresh_subtitle_document()
         self.autosave_project()
-        self.status_label.setText("Cleared cue highlights")
+        self.status_label.setText("已清空当前字幕高亮")
 
     def apply_selection_globally(self) -> None:
-        cursor = self.cue_editor.textCursor()
+        cursor = self.subtitle_highlight_view.textCursor()
         selected = cursor.selectedText().strip()
         if not selected:
-            self.status_label.setText("Select a word or phrase first")
+            self.status_label.setText("请先拖选一个词或短语")
             return
         if not any(rule.text == selected for rule in self.project.keyword_rules):
             self.project.keyword_rules.append(KeywordRule(text=selected))
         self.autosave_project()
-        self.status_label.setText(f"Added global keyword: {selected}")
+        self.status_label.setText(f"已添加全局关键词：{selected}")
 
     def refresh_keyword_suggestions(self) -> None:
         self.keyword_suggestions.clear()
         if not self.project.cues:
-            self.status_label.setText("Import subtitles before suggesting keywords")
+            self.status_label.setText("请先导入字幕")
             return
         existing = {rule.text for rule in self.project.keyword_rules}
         suggestions = [
@@ -685,12 +864,12 @@ class MainWindow(QMainWindow):
         ]
         for keyword in suggestions:
             self.keyword_suggestions.addItem(keyword)
-        self.status_label.setText(f"Suggested {len(suggestions)} keywords")
+        self.status_label.setText(f"已推荐 {len(suggestions)} 个关键词")
 
     def add_selected_keyword_suggestions(self) -> None:
         selected = [item.text() for item in self.keyword_suggestions.selectedItems()]
         if not selected:
-            self.status_label.setText("Select suggested keywords first")
+            self.status_label.setText("请先选择推荐关键词")
             return
         existing = {rule.text for rule in self.project.keyword_rules}
         added = 0
@@ -701,7 +880,7 @@ class MainWindow(QMainWindow):
                 added += 1
         self.ignore_selected_keyword_suggestions(update_status=False)
         self.autosave_project()
-        self.status_label.setText(f"Added {added} keyword rules")
+        self.status_label.setText(f"已添加 {added} 条关键词规则")
 
     def ignore_selected_keyword_suggestions(
         self,
@@ -719,44 +898,44 @@ class MainWindow(QMainWindow):
         )
         if not rows:
             if update_status:
-                self.status_label.setText("Select suggested keywords first")
+                self.status_label.setText("请先选择推荐关键词")
             return
         for row in rows:
             self.keyword_suggestions.takeItem(row)
         if update_status:
-            self.status_label.setText(f"Ignored {len(rows)} suggestions")
+            self.status_label.setText(f"已忽略 {len(rows)} 个推荐词")
 
     def export_ass(self) -> None:
         if not self.project.cues:
-            self.status_label.setText("Import subtitles first")
+            self.status_label.setText("请先导入字幕")
             return
         default_path = Path(self.project.srt_path or "subtitles.srt").with_suffix(".ass")
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "Export ASS",
+            "导出 ASS 字幕",
             str(default_path),
-            "Advanced SubStation Alpha (*.ass)",
+            "ASS 字幕 (*.ass)",
         )
         if not path:
             return
         try:
             self.write_ass_output(Path(path))
         except Exception as exc:
-            self.show_error("Failed to export ASS", exc)
+            self.show_error("导出 ASS 失败", exc)
             return
-        self.status_label.setText(f"Exported ASS: {Path(path).name}")
+        self.status_label.setText(f"已导出 ASS：{Path(path).name}")
 
     def export_green_overlay(self) -> None:
         if not self.project.cues:
-            self.status_label.setText("Import subtitles first")
+            self.status_label.setText("请先导入字幕")
             return
         if not self.ensure_ffmpeg_ready():
             return
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "Export Green Overlay",
+            "导出绿幕字幕层",
             "subtitle-overlay.mov",
-            "QuickTime movie (*.mov)",
+            "MOV 视频 (*.mov)",
         )
         if not path:
             return
@@ -766,7 +945,7 @@ class MainWindow(QMainWindow):
             width, height = self.export_size()
             duration = self.export_duration()
             self.start_export(
-                "Exporting green overlay...",
+                "正在导出绿幕字幕层...",
                 lambda runner: render_overlay(
                     ass_path,
                     Path(path),
@@ -776,22 +955,25 @@ class MainWindow(QMainWindow):
                     fps=int(self.project.export_settings.get("fps", 30)),
                     runner=runner.run,
                 ),
-                f"Exported overlay: {Path(path).name}",
+                f"已导出字幕层：{Path(path).name}",
             )
         except Exception as exc:
-            self.show_error("Failed to export overlay", exc)
+            self.show_error("导出字幕层失败", exc)
 
     def export_selected_presets(self) -> None:
         if not self.project.cues:
-            self.status_label.setText("Import subtitles first")
+            self.status_label.setText("请先导入字幕")
             return
         if not self.ensure_ffmpeg_ready():
             return
-        style_names = [item.text() for item in self.batch_styles_list.selectedItems()]
+        style_names = [
+            str(item.data(Qt.UserRole) or item.text())
+            for item in self.batch_styles_list.selectedItems()
+        ]
         if not style_names:
-            self.status_label.setText("Select one or more batch presets")
+            self.status_label.setText("请先选择一个或多个批量导出预设")
             return
-        directory = QFileDialog.getExistingDirectory(self, "Export Batch Overlays", "")
+        directory = QFileDialog.getExistingDirectory(self, "批量导出字幕层", "")
         if not directory:
             return
         try:
@@ -836,26 +1018,26 @@ class MainWindow(QMainWindow):
                     )
 
                 self.enqueue_export(
-                    f"Overlay preset: {style_name}",
+                    f"字幕层预设：{style_display_name(style_name)}",
                     job,
-                    f"Exported overlay preset: {style_name}",
+                    f"已导出字幕层预设：{style_display_name(style_name)}",
                 )
-            self.status_label.setText(f"Queued {len(style_names)} preset overlays")
+            self.status_label.setText(f"已加入 {len(style_names)} 个预设字幕层导出任务")
             self.start_next_queued_export()
         except Exception as exc:
-            self.show_error("Failed to export selected presets", exc)
+            self.show_error("导出选中预设失败", exc)
 
     def export_burned_video(self) -> None:
         if not self.project.video_path:
-            self.status_label.setText("Import a video first")
+            self.status_label.setText("请先导入视频")
             return
         if not self.ensure_ffmpeg_ready():
             return
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "Burn Video",
+            "烧录到视频",
             "highlighted.mp4",
-            "MP4 video (*.mp4)",
+            "MP4 视频 (*.mp4)",
         )
         if not path:
             return
@@ -863,29 +1045,29 @@ class MainWindow(QMainWindow):
             ass_path = Path(path).with_suffix(".ass")
             self.write_ass_output(ass_path)
             self.start_export(
-                "Burning subtitles into video...",
+                "正在把字幕烧录到视频...",
                 lambda runner: burn_video(
                     Path(self.project.video_path),
                     ass_path,
                     Path(path),
                     runner=runner.run,
                 ),
-                f"Exported burned video: {Path(path).name}",
+                f"已导出烧录视频：{Path(path).name}",
             )
         except Exception as exc:
-            self.show_error("Failed to burn video", exc)
+            self.show_error("烧录视频失败", exc)
 
     def export_preview_segment(self) -> None:
         if not self.project.video_path:
-            self.status_label.setText("Import a video first")
+            self.status_label.setText("请先导入视频")
             return
         if not self.ensure_ffmpeg_ready():
             return
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "Export 5s Preview",
+            "导出 5 秒预览",
             "preview.highlighted.mp4",
-            "MP4 video (*.mp4)",
+            "MP4 视频 (*.mp4)",
         )
         if not path:
             return
@@ -896,7 +1078,7 @@ class MainWindow(QMainWindow):
             if self.current_index is not None and self.current_index < len(self.project.cues):
                 start_seconds = max(self.project.cues[self.current_index].start_ms / 1000 - 1, 0)
             self.start_export(
-                "Exporting preview segment...",
+                "正在导出预览片段...",
                 lambda runner: burn_preview_segment(
                     Path(self.project.video_path),
                     ass_path,
@@ -905,10 +1087,10 @@ class MainWindow(QMainWindow):
                     duration_seconds=5.0,
                     runner=runner.run,
                 ),
-                f"Exported preview: {Path(path).name}",
+                f"已导出预览：{Path(path).name}",
             )
         except Exception as exc:
-            self.show_error("Failed to export preview", exc)
+            self.show_error("导出预览失败", exc)
 
     def write_ass_output(self, path: Path) -> None:
         self.commit_editor_text()
@@ -943,16 +1125,7 @@ class MainWindow(QMainWindow):
         return max(cue.end_ms for cue in self.project.cues) / 1000
 
     def commit_editor_text(self) -> None:
-        if self.current_index is None:
-            return
-        if self.current_index >= len(self.project.cues):
-            return
-        text = self.cue_editor.toPlainText()
-        cue = self.project.cues[self.current_index]
-        if cue.text != text:
-            self.project.cues[self.current_index] = replace(cue, text=text)
-            self.refresh_subtitle_item(self.current_index)
-            self.autosave_project()
+        return
 
     def autosave_project(self) -> None:
         if not self.project.cues and not self.project.srt_path and not self.project.video_path:
@@ -969,20 +1142,20 @@ class MainWindow(QMainWindow):
             self.subtitle_list.addItem(self.item_for_cue(index, cue))
         self.subtitle_list.blockSignals(False)
 
+        self.refresh_subtitle_document()
+
         if self.current_index is not None and self.project.cues:
             self.subtitle_list.setCurrentRow(self.current_index)
-            self.cue_editor.setPlainText(self.project.cues[self.current_index].text)
-        elif not self.project.cues:
-            self.cue_editor.clear()
+            self.focus_cue_in_highlight_view(self.current_index)
 
         self.update_style_combo_items()
         self.video_label.setText(
-            f"Video: {Path(self.project.video_path).name}"
+            f"视频：{Path(self.project.video_path).name}"
             if self.project.video_path
-            else "No video imported"
+            else "未导入视频"
         )
         self.project_label.setText(
-            self.project_path.name if self.project_path else "Untitled project"
+            self.project_path.name if self.project_path else "未命名项目"
         )
         self.refresh_style_preview()
 
@@ -995,6 +1168,10 @@ class MainWindow(QMainWindow):
         self.subtitle_list.setCurrentRow(index)
         self.subtitle_list.blockSignals(False)
 
+    def refresh_subtitle_items(self, indexes: list[int]) -> None:
+        for index in indexes:
+            self.refresh_subtitle_item(index)
+
     def item_for_cue(self, index: int, cue: Cue) -> QListWidgetItem:
         highlight_marker = " *" if cue.manual_highlights else ""
         label = f"{index + 1:03d}{highlight_marker}  {cue.text[:58]}"
@@ -1004,7 +1181,7 @@ class MainWindow(QMainWindow):
 
     def require_current_cue(self) -> int | None:
         if self.current_index is None or self.current_index >= len(self.project.cues):
-            self.status_label.setText("Select a subtitle cue first")
+            self.status_label.setText("请先选择一条字幕")
             return None
         return self.current_index
 
@@ -1012,7 +1189,7 @@ class MainWindow(QMainWindow):
         try:
             require_ffmpeg_tools()
         except Exception as exc:
-            self.show_error("ffmpeg is not available", exc)
+            self.show_error("未找到 ffmpeg", exc)
             return False
         return True
 
@@ -1033,18 +1210,18 @@ class MainWindow(QMainWindow):
     def clear_export_queue(self) -> None:
         self.export_queue.clear()
         self.refresh_export_queue()
-        self.status_label.setText("Cleared pending exports")
+        self.status_label.setText("已清空待导出任务")
 
     def start_next_queued_export(self) -> None:
         if self.export_thread is not None:
-            self.status_label.setText("An export is already running")
+            self.status_label.setText("已有导出任务正在运行")
             return
         if not self.export_queue:
-            self.status_label.setText("Export queue is empty")
+            self.status_label.setText("导出队列为空")
             return
         item = self.export_queue.pop(0)
         self.refresh_export_queue()
-        self.start_export(f"Exporting: {item.label}", item.job, item.success_message)
+        self.start_export(f"正在导出：{item.label}", item.job, item.success_message)
 
     def start_export(
         self,
@@ -1053,7 +1230,7 @@ class MainWindow(QMainWindow):
         success_message: str,
     ) -> None:
         if self.export_thread is not None:
-            self.status_label.setText("An export is already running")
+            self.status_label.setText("已有导出任务正在运行")
             return
 
         self.progress_bar.setVisible(True)
@@ -1079,7 +1256,7 @@ class MainWindow(QMainWindow):
             return
         self.active_ffmpeg_runner.cancel()
         self.cancel_export_button.setEnabled(False)
-        self.status_label.setText("Cancelling export...")
+        self.status_label.setText("正在取消导出...")
 
     def export_finished(self, message: str) -> None:
         self.progress_bar.setVisible(False)
@@ -1097,10 +1274,10 @@ class MainWindow(QMainWindow):
         self.progress_bar.setRange(0, 1)
         self.cancel_export_button.setEnabled(False)
         if "cancelled" in message.lower():
-            self.status_label.setText("Export cancelled")
+            self.status_label.setText("导出已取消")
         else:
-            self.status_label.setText(f"Export failed: {message}")
-            QMessageBox.critical(self, "Export failed", message)
+            self.status_label.setText(f"导出失败：{message}")
+            QMessageBox.critical(self, "导出失败", message)
         self.export_thread = None
         self.export_worker = None
         self.active_ffmpeg_runner = None

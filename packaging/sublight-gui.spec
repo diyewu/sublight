@@ -20,6 +20,7 @@ a = Analysis(
         "sublight.core.keywords",
         "sublight.core.models",
         "sublight.core.project",
+        "sublight.core.spans",
         "sublight.core.srt",
         "sublight.exporters.ass_exporter",
         "sublight.exporters.ffmpeg",
