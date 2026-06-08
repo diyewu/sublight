@@ -85,7 +85,7 @@ GitHub Actions builds macOS and Windows artifacts from tags matching `v*` or man
 
 Latest validated prerelease:
 
-- [v0.1.0-alpha.3](https://github.com/diyewu/sublight/releases/tag/v0.1.0-alpha.3)
+- [v0.1.0-alpha.4](https://github.com/diyewu/sublight/releases/tag/v0.1.0-alpha.4)
 - `SubLight-macOS.zip`
 - `SubLight-Windows.zip`
 

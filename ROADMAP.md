@@ -149,7 +149,7 @@ Deliverables:
 - Example project.
 - GitHub Actions release workflow.
 - Decide whether to bundle ffmpeg or guide installation.
-- Validated `v0.1.0-alpha.3` GitHub Release with macOS and Windows zip artifacts.
+- Validated `v0.1.0-alpha.4` GitHub Release with macOS and Windows zip artifacts.
 
 Acceptance criteria:
 
@@ -196,4 +196,4 @@ Possible future features:
 
 The current engineering priority is **Packaged App Smoke Testing**.
 
-Download the `v0.1.0-alpha.3` macOS and Windows artifacts, smoke-test GUI launch/export on real machines, then tighten ffmpeg onboarding, signing/notarization, and GUI regression coverage before calling SubLight beta-ready.
+Download the `v0.1.0-alpha.4` macOS and Windows artifacts, smoke-test GUI launch/export on real machines, then tighten ffmpeg onboarding, signing/notarization, and GUI regression coverage before calling SubLight beta-ready.
