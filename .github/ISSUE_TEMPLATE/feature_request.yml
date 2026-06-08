@@ -1,0 +1,51 @@
+name: Feature request
+description: Suggest a workflow, export mode, style option, or product improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Feature requests are most useful when they explain the creator workflow and the current workaround.
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Creator workflow
+      description: What are you trying to make or export?
+      placeholder: "I edit tutorial videos in CapCut and need..."
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Current problem
+      description: What is hard, repetitive, unreliable, or missing today?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior you want SubLight to support.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Product area
+      options:
+        - Keyword selection
+        - Style editor
+        - Preview
+        - Export
+        - Desktop packaging
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: examples
+    attributes:
+      label: Examples or references
+      description: Screenshots, videos, or tools with a similar workflow are helpful.
+

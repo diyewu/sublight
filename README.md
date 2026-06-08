@@ -231,9 +231,16 @@ In practice, the burned-in video and green-screen overlay are often more reliabl
 
 SubLight is moving from a CLI prototype toward a commercial-ready desktop app.
 
+- [Getting started](docs/getting-started.md)
 - [Product plan](docs/product-plan.md)
 - [Architecture](docs/architecture.md)
+- [Development plan](docs/development-plan.md)
+- [Commercial readiness](docs/commercial-readiness.md)
 - [Roadmap](ROADMAP.md)
+
+## Contributing
+
+Bug reports, feature requests, tests, docs, and focused pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

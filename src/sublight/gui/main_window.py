@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from sublight.config import load_recent_projects, remember_project
+from sublight.config import autosave_project_path, load_recent_projects, remember_project
 from sublight.core.models import Cue, HighlightSpan, KeywordRule, Project
 from sublight.core.project import load_project, save_project
 from sublight.core.srt import parse_srt
@@ -108,6 +108,7 @@ class MainWindow(QMainWindow):
         self.refresh_recent_projects()
         self.load_style_into_editor(self.current_style())
         self.refresh_view()
+        self.offer_autosave_restore()
 
     def int_spin(self, minimum: int, maximum: int) -> QSpinBox:
         spin = QSpinBox()
@@ -252,6 +253,7 @@ class MainWindow(QMainWindow):
         self.project.cues = cues
         self.current_index = 0 if cues else None
         self.refresh_view()
+        self.autosave_project()
         self.status_label.setText(f"Imported {len(cues)} subtitle cues")
 
     def import_video(self) -> None:
@@ -265,6 +267,7 @@ class MainWindow(QMainWindow):
             return
         self.project.video_path = path
         self.refresh_view()
+        self.autosave_project()
         self.status_label.setText(f"Imported video: {Path(path).name}")
 
     def open_project(self) -> None:
@@ -285,6 +288,7 @@ class MainWindow(QMainWindow):
         self.remember_current_project()
         self.current_index = 0 if self.project.cues else None
         self.refresh_view()
+        self.autosave_project()
         self.status_label.setText(f"Opened project: {Path(path).name}")
 
     def save_project_as(self) -> None:
@@ -305,6 +309,7 @@ class MainWindow(QMainWindow):
         self.project_path = Path(path)
         self.remember_current_project()
         self.refresh_view()
+        self.autosave_project()
         self.status_label.setText(f"Saved project: {Path(path).name}")
 
     def open_recent_project(self, index: int) -> None:
@@ -323,6 +328,7 @@ class MainWindow(QMainWindow):
         self.remember_current_project()
         self.current_index = 0 if self.project.cues else None
         self.refresh_view()
+        self.autosave_project()
         self.status_label.setText(f"Opened project: {path.name}")
 
     def remember_current_project(self) -> None:
@@ -330,6 +336,28 @@ class MainWindow(QMainWindow):
             return
         remember_project(self.project_path)
         self.refresh_recent_projects()
+
+    def offer_autosave_restore(self) -> None:
+        path = autosave_project_path()
+        if not path.exists():
+            return
+        answer = QMessageBox.question(
+            self,
+            "Restore autosave",
+            "SubLight found an autosaved project. Restore it?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        try:
+            self.project = load_project(path)
+        except Exception as exc:
+            self.show_error("Failed to restore autosave", exc)
+            return
+        self.project_path = None
+        self.current_index = 0 if self.project.cues else None
+        self.refresh_view()
+        self.status_label.setText(f"Restored autosave: {path.name}")
 
     def refresh_recent_projects(self) -> None:
         self.recent_combo.blockSignals(True)
@@ -352,6 +380,7 @@ class MainWindow(QMainWindow):
     def set_active_style(self, style_name: str) -> None:
         self.project.active_style = style_name
         self.load_style_into_editor(self.current_style())
+        self.autosave_project()
 
     def update_style_combo_items(self) -> None:
         current = self.project.active_style
@@ -423,6 +452,7 @@ class MainWindow(QMainWindow):
         self.project.active_style = name
         self.update_style_combo_items()
         self.style_combo.setCurrentText(name)
+        self.autosave_project()
         self.status_label.setText(f"Saved style: {name}")
 
     def import_style_json(self) -> None:
@@ -445,6 +475,7 @@ class MainWindow(QMainWindow):
         self.project.active_style = name
         self.update_style_combo_items()
         self.load_style_into_editor(preset)
+        self.autosave_project()
         self.status_label.setText(f"Imported style: {name}")
 
     def export_style_json(self) -> None:
@@ -484,6 +515,7 @@ class MainWindow(QMainWindow):
         )
         self.project.cues[index] = replace(cue, manual_highlights=spans)
         self.refresh_subtitle_item(index)
+        self.autosave_project()
         self.status_label.setText("Highlighted selected text")
 
     def clear_cue_highlights(self) -> None:
@@ -494,6 +526,7 @@ class MainWindow(QMainWindow):
         cue = self.project.cues[index]
         self.project.cues[index] = replace(cue, manual_highlights=())
         self.refresh_subtitle_item(index)
+        self.autosave_project()
         self.status_label.setText("Cleared cue highlights")
 
     def apply_selection_globally(self) -> None:
@@ -504,6 +537,7 @@ class MainWindow(QMainWindow):
             return
         if not any(rule.text == selected for rule in self.project.keyword_rules):
             self.project.keyword_rules.append(KeywordRule(text=selected))
+        self.autosave_project()
         self.status_label.setText(f"Added global keyword: {selected}")
 
     def export_ass(self) -> None:
@@ -661,6 +695,15 @@ class MainWindow(QMainWindow):
         if cue.text != text:
             self.project.cues[self.current_index] = replace(cue, text=text)
             self.refresh_subtitle_item(self.current_index)
+            self.autosave_project()
+
+    def autosave_project(self) -> None:
+        if not self.project.cues and not self.project.srt_path and not self.project.video_path:
+            return
+        try:
+            save_project(self.project, autosave_project_path())
+        except Exception:
+            return
 
     def refresh_view(self) -> None:
         self.subtitle_list.blockSignals(True)

@@ -1,8 +1,15 @@
 # SubLight Roadmap
 
-SubLight is currently a working CLI prototype. The next goal is to turn it into a commercial-ready desktop tool with a stable core engine, GUI workflow, style system, and reliable export pipeline.
+SubLight is currently an alpha desktop and CLI prototype. The next goal is to turn it into a commercial-ready desktop tool with a stable core engine, GUI workflow, style system, and reliable export pipeline.
+
+See also:
+
+- [Development plan](docs/development-plan.md)
+- [Commercial readiness checklist](docs/commercial-readiness.md)
 
 ## M1: Core Engine Refactor
+
+Status: implemented.
 
 Goal: turn the current CLI script into reusable modules without breaking CLI behavior.
 
@@ -24,6 +31,8 @@ Acceptance criteria:
 
 ## M2: Project Model
 
+Status: implemented.
+
 Goal: support saving and reopening user edits.
 
 Deliverables:
@@ -41,6 +50,8 @@ Acceptance criteria:
 - Manual cue highlights can coexist with global keyword highlights.
 
 ## M3: GUI MVP
+
+Status: implemented.
 
 Goal: let non-technical users complete the basic workflow in a desktop app.
 
@@ -68,6 +79,8 @@ Acceptance criteria:
 - A user can import an SRT, manually highlight words, select a preset, and export a usable result without using the terminal.
 
 ## M4: Style Editor
+
+Status: implemented.
 
 Goal: make subtitle styling product-grade.
 
@@ -99,6 +112,8 @@ Acceptance criteria:
 
 ## M5: Video Preview and Export UX
 
+Status: implemented.
+
 Goal: make export reliable and understandable.
 
 Deliverables:
@@ -120,6 +135,8 @@ Acceptance criteria:
 
 ## M6: Desktop Packaging
 
+Status: implemented as build scaffolding.
+
 Goal: ship installable builds for normal users.
 
 Deliverables:
@@ -138,6 +155,8 @@ Acceptance criteria:
 - A user can download an app from GitHub Releases and run it without cloning the repository.
 
 ## M7: Commercial Readiness
+
+Status: implemented as alpha-readiness foundations.
 
 Goal: polish SubLight for real public use.
 
@@ -174,6 +193,6 @@ Possible future features:
 
 ## Current Priority
 
-The next engineering task is **M1: Core Engine Refactor**.
+The current engineering priority is **M7: Commercial Readiness**.
 
-Start by extracting the current `src/sublight/cli.py` into modules while preserving existing command-line behavior.
+Finish autosave recovery, public documentation, sample assets, and release validation before calling SubLight beta-ready.

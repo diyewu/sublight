@@ -23,6 +23,10 @@ def recent_projects_path() -> Path:
     return user_config_dir() / "recent-projects.json"
 
 
+def autosave_project_path() -> Path:
+    return user_config_dir() / "autosave.sublight.json"
+
+
 def load_recent_projects(limit: int = 10) -> list[str]:
     path = recent_projects_path()
     if not path.exists():

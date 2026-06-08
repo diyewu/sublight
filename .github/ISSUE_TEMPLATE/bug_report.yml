@@ -1,0 +1,65 @@
+name: Bug report
+description: Report something that is broken or confusing in SubLight.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please include enough detail for someone else to reproduce it.
+  - type: input
+    id: version
+    attributes:
+      label: SubLight version or commit
+      placeholder: "0.1.0 or commit SHA"
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where did it happen?
+      options:
+        - GUI
+        - CLI
+        - Desktop build
+        - GitHub Actions build
+        - Documentation
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "macOS 15, Windows 11, Ubuntu 24.04"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the smallest sequence of steps that triggers the issue.
+      placeholder: |
+        1. Import this SRT...
+        2. Choose this preset...
+        3. Export...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the exact error message, screenshot, or export artifact if possible.
+    validations:
+      required: true
+  - type: textarea
+    id: sample
+    attributes:
+      label: Sample files or notes
+      description: Attach a minimal SRT/video sample if you can share one safely.
+
