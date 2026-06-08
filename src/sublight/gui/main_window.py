@@ -4,8 +4,9 @@ import json
 from dataclasses import asdict
 from dataclasses import replace
 from pathlib import Path
+from collections.abc import Callable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread
 from PySide6.QtWidgets import (
     QCheckBox,
     QDoubleSpinBox,
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QComboBox,
     QSpinBox,
@@ -31,8 +33,17 @@ from sublight.core.models import Cue, HighlightSpan, KeywordRule, Project
 from sublight.core.project import load_project, save_project
 from sublight.core.srt import parse_srt
 from sublight.exporters.ass_exporter import write_keyword_report
-from sublight.exporters.ffmpeg import ffprobe_duration, ffprobe_size
-from sublight.exporters.video_exporter import burn_video, render_overlay
+from sublight.exporters.ffmpeg import (
+    ffprobe_duration,
+    ffprobe_size,
+    require_ffmpeg_tools,
+)
+from sublight.exporters.video_exporter import (
+    burn_preview_segment,
+    burn_video,
+    render_overlay,
+)
+from sublight.gui.export_worker import ExportWorker
 from sublight.styles.ass import write_ass
 from sublight.styles.presets import STYLE_PRESETS, merge_style_preset
 from sublight.styles.schema import StylePreset
@@ -83,6 +94,11 @@ class MainWindow(QMainWindow):
         self.video_label = QLabel("No video imported")
         self.project_label = QLabel("Untitled project")
         self.status_label = QLabel("Ready")
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setTextVisible(False)
+        self.export_thread: QThread | None = None
+        self.export_worker: ExportWorker | None = None
 
         self.setCentralWidget(self.build_layout())
         self.load_style_into_editor(self.current_style())
@@ -126,6 +142,7 @@ class MainWindow(QMainWindow):
         body.setColumnStretch(1, 4)
         body.setColumnStretch(2, 2)
         layout.addLayout(body, 1)
+        layout.addWidget(self.progress_bar)
         layout.addWidget(self.status_label)
         return root
 
@@ -201,6 +218,7 @@ class MainWindow(QMainWindow):
         for label, handler in (
             ("Export ASS", self.export_ass),
             ("Export Green Overlay", self.export_green_overlay),
+            ("Export 5s Preview", self.export_preview_segment),
             ("Burn Video", self.export_burned_video),
         ):
             button = QPushButton(label)
@@ -471,6 +489,8 @@ class MainWindow(QMainWindow):
         if not self.project.cues:
             self.status_label.setText("Import subtitles first")
             return
+        if not self.ensure_ffmpeg_ready():
+            return
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Export Green Overlay",
@@ -484,22 +504,26 @@ class MainWindow(QMainWindow):
             self.write_ass_output(ass_path)
             width, height = self.export_size()
             duration = self.export_duration()
-            render_overlay(
-                ass_path,
-                Path(path),
-                width=width,
-                height=height,
-                duration=duration,
-                fps=int(self.project.export_settings.get("fps", 30)),
+            self.start_export(
+                "Exporting green overlay...",
+                lambda: render_overlay(
+                    ass_path,
+                    Path(path),
+                    width=width,
+                    height=height,
+                    duration=duration,
+                    fps=int(self.project.export_settings.get("fps", 30)),
+                ),
+                f"Exported overlay: {Path(path).name}",
             )
         except Exception as exc:
             self.show_error("Failed to export overlay", exc)
-            return
-        self.status_label.setText(f"Exported overlay: {Path(path).name}")
 
     def export_burned_video(self) -> None:
         if not self.project.video_path:
             self.status_label.setText("Import a video first")
+            return
+        if not self.ensure_ffmpeg_ready():
             return
         path, _ = QFileDialog.getSaveFileName(
             self,
@@ -512,11 +536,47 @@ class MainWindow(QMainWindow):
         try:
             ass_path = Path(path).with_suffix(".ass")
             self.write_ass_output(ass_path)
-            burn_video(Path(self.project.video_path), ass_path, Path(path))
+            self.start_export(
+                "Burning subtitles into video...",
+                lambda: burn_video(Path(self.project.video_path), ass_path, Path(path)),
+                f"Exported burned video: {Path(path).name}",
+            )
         except Exception as exc:
             self.show_error("Failed to burn video", exc)
+
+    def export_preview_segment(self) -> None:
+        if not self.project.video_path:
+            self.status_label.setText("Import a video first")
             return
-        self.status_label.setText(f"Exported burned video: {Path(path).name}")
+        if not self.ensure_ffmpeg_ready():
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export 5s Preview",
+            "preview.highlighted.mp4",
+            "MP4 video (*.mp4)",
+        )
+        if not path:
+            return
+        try:
+            ass_path = Path(path).with_suffix(".ass")
+            self.write_ass_output(ass_path)
+            start_seconds = 0.0
+            if self.current_index is not None and self.current_index < len(self.project.cues):
+                start_seconds = max(self.project.cues[self.current_index].start_ms / 1000 - 1, 0)
+            self.start_export(
+                "Exporting preview segment...",
+                lambda: burn_preview_segment(
+                    Path(self.project.video_path),
+                    ass_path,
+                    Path(path),
+                    start_seconds=start_seconds,
+                    duration_seconds=5.0,
+                ),
+                f"Exported preview: {Path(path).name}",
+            )
+        except Exception as exc:
+            self.show_error("Failed to export preview", exc)
 
     def write_ass_output(self, path: Path) -> None:
         self.commit_editor_text()
@@ -605,6 +665,54 @@ class MainWindow(QMainWindow):
             self.status_label.setText("Select a subtitle cue first")
             return None
         return self.current_index
+
+    def ensure_ffmpeg_ready(self) -> bool:
+        try:
+            require_ffmpeg_tools()
+        except Exception as exc:
+            self.show_error("ffmpeg is not available", exc)
+            return False
+        return True
+
+    def start_export(
+        self,
+        status: str,
+        job: Callable[[], None],
+        success_message: str,
+    ) -> None:
+        if self.export_thread is not None:
+            self.status_label.setText("An export is already running")
+            return
+
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)
+        self.status_label.setText(status)
+
+        self.export_thread = QThread()
+        self.export_worker = ExportWorker(job, success_message)
+        self.export_worker.moveToThread(self.export_thread)
+        self.export_thread.started.connect(self.export_worker.run)
+        self.export_worker.finished.connect(self.export_finished)
+        self.export_worker.failed.connect(self.export_failed)
+        self.export_worker.finished.connect(self.export_thread.quit)
+        self.export_worker.failed.connect(self.export_thread.quit)
+        self.export_thread.finished.connect(self.export_thread.deleteLater)
+        self.export_thread.start()
+
+    def export_finished(self, message: str) -> None:
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setRange(0, 1)
+        self.status_label.setText(message)
+        self.export_thread = None
+        self.export_worker = None
+
+    def export_failed(self, message: str) -> None:
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setRange(0, 1)
+        self.status_label.setText(f"Export failed: {message}")
+        QMessageBox.critical(self, "Export failed", message)
+        self.export_thread = None
+        self.export_worker = None
 
     def show_error(self, title: str, exc: Exception) -> None:
         QMessageBox.critical(self, title, str(exc))

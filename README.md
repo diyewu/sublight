@@ -66,6 +66,8 @@ Run the GUI:
 sublight-gui
 ```
 
+The GUI can import SRT/video files, mark manual highlights, edit styles, export ASS, render overlays, burn final videos, and export short preview segments.
+
 ## Quick Start
 
 Generate an ASS subtitle file:

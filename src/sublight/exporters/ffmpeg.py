@@ -1,10 +1,30 @@
 from __future__ import annotations
 
 import subprocess
+import shutil
 from pathlib import Path
 
 
+def find_tool(name: str) -> str | None:
+    return shutil.which(name)
+
+
+def require_tool(name: str) -> str:
+    path = find_tool(name)
+    if path is None:
+        raise FileNotFoundError(
+            f"{name} was not found. Install ffmpeg and make sure `{name}` is on PATH."
+        )
+    return path
+
+
+def require_ffmpeg_tools() -> None:
+    require_tool("ffmpeg")
+    require_tool("ffprobe")
+
+
 def ffprobe_duration(path: Path) -> float | None:
+    require_tool("ffprobe")
     cmd = [
         "ffprobe",
         "-v",
@@ -23,6 +43,7 @@ def ffprobe_duration(path: Path) -> float | None:
 
 
 def ffprobe_size(path: Path) -> tuple[int, int] | None:
+    require_tool("ffprobe")
     cmd = [
         "ffprobe",
         "-v",
@@ -50,4 +71,5 @@ def ffmpeg_filter_path(path: Path) -> str:
 
 
 def run_ffmpeg(cmd: list[str]) -> None:
+    require_tool("ffmpeg")
     subprocess.run(cmd, check=True)
