@@ -13,7 +13,7 @@ def main() -> int:
         )
         return 2
 
-    from .main_window import MainWindow
+    from sublight.gui.main_window import MainWindow
 
     app = QApplication(sys.argv)
     window = MainWindow()
