@@ -3,11 +3,14 @@
 from pathlib import Path
 
 
-ROOT = Path(SPECPATH).resolve().parent
+SPEC_PATH = Path(SPECPATH).resolve()
+SPEC_DIR = SPEC_PATH.parent if SPEC_PATH.is_file() else SPEC_PATH
+ROOT = SPEC_DIR.parent
+APP_ENTRY = ROOT / "src" / "sublight" / "gui" / "app.py"
 
 
 a = Analysis(
-    ["src/sublight/gui/app.py"],
+    [str(APP_ENTRY)],
     pathex=[str(ROOT / "src")],
     binaries=[],
     datas=[(str(ROOT / "assets"), "assets")],
