@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import json
 from dataclasses import asdict
+from dataclasses import dataclass
 from dataclasses import replace
 from pathlib import Path
 from collections.abc import Callable
@@ -38,7 +39,6 @@ from sublight.core.project import load_project, save_project
 from sublight.core.srt import parse_srt
 from sublight.exporters.ass_exporter import write_keyword_report
 from sublight.exporters.ffmpeg import (
-    FfmpegCancelled,
     FfmpegRunner,
     ffprobe_duration,
     ffprobe_size,
@@ -53,6 +53,13 @@ from sublight.gui.export_worker import ExportWorker
 from sublight.styles.ass import write_ass
 from sublight.styles.presets import STYLE_PRESETS, merge_style_preset
 from sublight.styles.schema import StylePreset
+
+
+@dataclass(frozen=True)
+class ExportQueueItem:
+    label: str
+    job: Callable[[FfmpegRunner], None]
+    success_message: str
 
 
 class MainWindow(QMainWindow):
@@ -105,6 +112,8 @@ class MainWindow(QMainWindow):
         self.batch_styles_list.setSelectionMode(QAbstractItemView.MultiSelection)
         for name in sorted(STYLE_PRESETS):
             self.batch_styles_list.addItem(name)
+        self.export_queue_list = QListWidget()
+        self.export_queue_list.setMinimumHeight(96)
         self.style_preview_label = QLabel()
         self.style_preview_label.setAlignment(Qt.AlignCenter)
         self.style_preview_label.setMinimumHeight(92)
@@ -126,6 +135,7 @@ class MainWindow(QMainWindow):
         self.export_thread: QThread | None = None
         self.export_worker: ExportWorker | None = None
         self.active_ffmpeg_runner: FfmpegRunner | None = None
+        self.export_queue: list[ExportQueueItem] = []
 
         self.connect_style_editor_signals()
         self.setCentralWidget(self.build_layout())
@@ -268,6 +278,17 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.video_label)
         layout.addWidget(QLabel("Batch overlay presets"))
         layout.addWidget(self.batch_styles_list)
+        layout.addWidget(QLabel("Export queue"))
+        layout.addWidget(self.export_queue_list)
+        queue_buttons = QHBoxLayout()
+        for label, handler in (
+            ("Start Queue", self.start_next_queued_export),
+            ("Clear Queue", self.clear_export_queue),
+        ):
+            button = QPushButton(label)
+            button.clicked.connect(handler)
+            queue_buttons.addWidget(button)
+        layout.addLayout(queue_buttons)
 
         for label, handler in (
             ("Export ASS", self.export_ass),
@@ -783,25 +804,30 @@ class MainWindow(QMainWindow):
             keywords = [rule.text for rule in self.project.keyword_rules if rule.enabled]
             base_name = Path(self.project.srt_path or "subtitles.srt").stem
 
-            def job(runner: FfmpegRunner) -> None:
-                for style_name in style_names:
-                    if runner.cancelled:
-                        raise FfmpegCancelled("Export cancelled")
-                    preset = merge_style_preset(preset_name=style_name)
-                    ass_path = output_dir / f"{base_name}.{style_name}.ass"
-                    overlay_path = output_dir / f"{base_name}.{style_name}.mov"
+            for style_name in style_names:
+                preset = merge_style_preset(preset_name=style_name)
+                ass_path = output_dir / f"{base_name}.{style_name}.ass"
+                overlay_path = output_dir / f"{base_name}.{style_name}.mov"
+
+                def job(
+                    runner: FfmpegRunner,
+                    *,
+                    style_preset: StylePreset = preset,
+                    ass_output: Path = ass_path,
+                    overlay_output: Path = overlay_path,
+                ) -> None:
                     write_ass(
                         cues,
                         keywords,
-                        ass_path,
+                        ass_output,
                         width=width,
                         height=height,
-                        preset=preset,
+                        preset=style_preset,
                     )
-                    write_keyword_report(keywords, ass_path.with_suffix(".keywords.md"), cues)
+                    write_keyword_report(keywords, ass_output.with_suffix(".keywords.md"), cues)
                     render_overlay(
-                        ass_path,
-                        overlay_path,
+                        ass_output,
+                        overlay_output,
                         width=width,
                         height=height,
                         duration=duration,
@@ -809,11 +835,13 @@ class MainWindow(QMainWindow):
                         runner=runner.run,
                     )
 
-            self.start_export(
-                "Exporting selected presets...",
-                job,
-                f"Exported {len(style_names)} preset overlays",
-            )
+                self.enqueue_export(
+                    f"Overlay preset: {style_name}",
+                    job,
+                    f"Exported overlay preset: {style_name}",
+                )
+            self.status_label.setText(f"Queued {len(style_names)} preset overlays")
+            self.start_next_queued_export()
         except Exception as exc:
             self.show_error("Failed to export selected presets", exc)
 
@@ -988,6 +1016,36 @@ class MainWindow(QMainWindow):
             return False
         return True
 
+    def enqueue_export(
+        self,
+        label: str,
+        job: Callable[[FfmpegRunner], None],
+        success_message: str,
+    ) -> None:
+        self.export_queue.append(ExportQueueItem(label, job, success_message))
+        self.refresh_export_queue()
+
+    def refresh_export_queue(self) -> None:
+        self.export_queue_list.clear()
+        for index, item in enumerate(self.export_queue, start=1):
+            self.export_queue_list.addItem(f"{index:02d}  {item.label}")
+
+    def clear_export_queue(self) -> None:
+        self.export_queue.clear()
+        self.refresh_export_queue()
+        self.status_label.setText("Cleared pending exports")
+
+    def start_next_queued_export(self) -> None:
+        if self.export_thread is not None:
+            self.status_label.setText("An export is already running")
+            return
+        if not self.export_queue:
+            self.status_label.setText("Export queue is empty")
+            return
+        item = self.export_queue.pop(0)
+        self.refresh_export_queue()
+        self.start_export(f"Exporting: {item.label}", item.job, item.success_message)
+
     def start_export(
         self,
         status: str,
@@ -1031,6 +1089,8 @@ class MainWindow(QMainWindow):
         self.export_thread = None
         self.export_worker = None
         self.active_ffmpeg_runner = None
+        if self.export_queue:
+            self.start_next_queued_export()
 
     def export_failed(self, message: str) -> None:
         self.progress_bar.setVisible(False)

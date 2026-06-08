@@ -195,4 +195,4 @@ Possible future features:
 
 The current engineering priority is **Beta Readiness**.
 
-Finish export queueing, tutorial content, and release validation before calling SubLight beta-ready.
+Finish release validation before calling SubLight beta-ready.

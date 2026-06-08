@@ -237,6 +237,7 @@ SubLight is moving from a CLI prototype toward a commercial-ready desktop app.
 
 - [Getting started](docs/getting-started.md)
 - [Landing page](site/index.html)
+- [Tutorial video script](docs/tutorial-video-script.md)
 - [Product plan](docs/product-plan.md)
 - [Architecture](docs/architecture.md)
 - [Development plan](docs/development-plan.md)

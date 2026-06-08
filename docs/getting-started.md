@@ -95,6 +95,7 @@ The repository includes:
 - `examples/sample-video.mp4`
 - `examples/sample.sublight.json`
 - `examples/cyan-style.json`
+- `examples/tutorial-video.mp4`
 
 Use them to smoke-test the CLI or GUI before trying your own files.
 

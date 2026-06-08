@@ -120,12 +120,12 @@ Key outputs:
 - Batch overlay export for selected built-in presets.
 - Style preview panel.
 - Export cancellation for ffmpeg jobs.
+- Export queue for selected preset overlays.
 - Example SRT, project, style, and tiny sample video.
+- Generated tutorial video and storyboard.
 
 ## Next Product Slices
 
 The next useful slices after M7 are:
 
-- Export queue.
 - GitHub Releases artifact validation.
-- Tutorial video.
