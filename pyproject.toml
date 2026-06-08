@@ -43,6 +43,7 @@ sublight-gui = "sublight.gui.app:main"
 
 [project.optional-dependencies]
 gui = ["PySide6>=6.7"]
+build = ["PyInstaller>=6.10"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sublight"]

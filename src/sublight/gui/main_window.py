@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from sublight.config import load_recent_projects, remember_project
 from sublight.core.models import Cue, HighlightSpan, KeywordRule, Project
 from sublight.core.project import load_project, save_project
 from sublight.core.srt import parse_srt
@@ -69,6 +70,9 @@ class MainWindow(QMainWindow):
         self.style_combo.addItems(sorted(STYLE_PRESETS))
         self.style_combo.setCurrentText(self.project.active_style)
         self.style_combo.currentTextChanged.connect(self.set_active_style)
+        self.recent_combo = QComboBox()
+        self.recent_combo.addItem("Recent projects")
+        self.recent_combo.activated.connect(self.open_recent_project)
 
         self.custom_style_name = QLineEdit()
         self.custom_style_name.setPlaceholderText("Custom style name")
@@ -101,6 +105,7 @@ class MainWindow(QMainWindow):
         self.export_worker: ExportWorker | None = None
 
         self.setCentralWidget(self.build_layout())
+        self.refresh_recent_projects()
         self.load_style_into_editor(self.current_style())
         self.refresh_view()
 
@@ -130,6 +135,7 @@ class MainWindow(QMainWindow):
             button = QPushButton(label)
             button.clicked.connect(handler)
             top_bar.addWidget(button)
+        top_bar.addWidget(self.recent_combo)
         top_bar.addStretch(1)
         top_bar.addWidget(self.project_label)
         layout.addLayout(top_bar)
@@ -276,6 +282,7 @@ class MainWindow(QMainWindow):
             self.show_error("Failed to open project", exc)
             return
         self.project_path = Path(path)
+        self.remember_current_project()
         self.current_index = 0 if self.project.cues else None
         self.refresh_view()
         self.status_label.setText(f"Opened project: {Path(path).name}")
@@ -296,8 +303,42 @@ class MainWindow(QMainWindow):
             self.show_error("Failed to save project", exc)
             return
         self.project_path = Path(path)
+        self.remember_current_project()
         self.refresh_view()
         self.status_label.setText(f"Saved project: {Path(path).name}")
+
+    def open_recent_project(self, index: int) -> None:
+        if index <= 0:
+            return
+        path = Path(self.recent_combo.itemData(index))
+        if not path.exists():
+            self.status_label.setText(f"Recent project no longer exists: {path}")
+            return
+        try:
+            self.project = load_project(path)
+        except Exception as exc:
+            self.show_error("Failed to open recent project", exc)
+            return
+        self.project_path = path
+        self.remember_current_project()
+        self.current_index = 0 if self.project.cues else None
+        self.refresh_view()
+        self.status_label.setText(f"Opened project: {path.name}")
+
+    def remember_current_project(self) -> None:
+        if self.project_path is None:
+            return
+        remember_project(self.project_path)
+        self.refresh_recent_projects()
+
+    def refresh_recent_projects(self) -> None:
+        self.recent_combo.blockSignals(True)
+        self.recent_combo.clear()
+        self.recent_combo.addItem("Recent projects")
+        for item in load_recent_projects():
+            path = Path(item)
+            self.recent_combo.addItem(path.name, str(path))
+        self.recent_combo.blockSignals(False)
 
     def select_cue(self, row: int) -> None:
         if row < 0 or row >= len(self.project.cues):

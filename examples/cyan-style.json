@@ -1,0 +1,20 @@
+{
+  "font": "STHeiti",
+  "font_size": 56,
+  "margin_v": 76,
+  "max_line_width": 30,
+  "primary_color": "#FFFFFF",
+  "highlight_color": "#00E5FF",
+  "outline_color": "#000000",
+  "keyword_outline_color": "#001018",
+  "back_color": "#000000",
+  "back_alpha": 127,
+  "bold": true,
+  "keyword_bold": true,
+  "keyword_scale": 1.06,
+  "outline": 3.2,
+  "keyword_outline": 4.8,
+  "shadow": 0.0,
+  "alignment": 2,
+  "border_style": 1
+}

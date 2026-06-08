@@ -68,6 +68,24 @@ sublight-gui
 
 The GUI can import SRT/video files, mark manual highlights, edit styles, export ASS, render overlays, burn final videos, and export short preview segments.
 
+## Desktop Builds
+
+SubLight includes a PyInstaller spec for desktop packaging:
+
+```bash
+python -m pip install -e ".[gui,build]"
+pyinstaller packaging/sublight-gui.spec --noconfirm
+```
+
+GitHub Actions builds macOS and Windows artifacts from tags matching `v*` or manual workflow runs.
+
+Current packaging strategy:
+
+- The app bundles SubLight and PySide6.
+- `ffmpeg` is not bundled yet.
+- Users should install `ffmpeg` separately or make it available on `PATH`.
+- Future releases may ship managed ffmpeg binaries per platform.
+
 ## Quick Start
 
 Generate an ASS subtitle file:
