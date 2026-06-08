@@ -193,6 +193,6 @@ Possible future features:
 
 ## Current Priority
 
-The current engineering priority is **M7: Commercial Readiness**.
+The current engineering priority is **Beta Readiness**.
 
-Finish autosave recovery, public documentation, sample assets, and release validation before calling SubLight beta-ready.
+Finish style preview, export cancellation, tutorial content, and release validation before calling SubLight beta-ready.

@@ -110,20 +110,21 @@ Purpose: make the project understandable, recoverable, and contribution-friendly
 Key outputs:
 
 - Getting-started guide.
+- Static product landing page.
 - Commercial readiness checklist.
 - Contribution guide.
 - Issue templates.
 - Pull request template.
 - Best-effort autosave and restore prompt.
+- Keyword suggestion accept/ignore controls.
+- Batch overlay export for selected built-in presets.
+- Example SRT, project, style, and tiny sample video.
 
 ## Next Product Slices
 
 The next useful slices after M7 are:
 
-- Autosave recovery prompt on GUI launch.
 - Real style preview panel.
-- Keyword suggestion accept/reject UI.
 - Export queue and cancel button.
-- Bundled sample SRT and sample video.
 - GitHub Releases artifact validation.
-- Landing page and tutorial video.
+- Tutorial video.

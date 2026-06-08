@@ -8,6 +8,7 @@ from collections.abc import Callable
 
 from PySide6.QtCore import Qt, QThread
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -30,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from sublight.config import autosave_project_path, load_recent_projects, remember_project
+from sublight.core.keywords import auto_keywords
 from sublight.core.models import Cue, HighlightSpan, KeywordRule, Project
 from sublight.core.project import load_project, save_project
 from sublight.core.srt import parse_srt
@@ -65,6 +67,8 @@ class MainWindow(QMainWindow):
 
         self.cue_editor = QTextEdit()
         self.cue_editor.setPlaceholderText("Import an SRT file to start.")
+        self.keyword_suggestions = QListWidget()
+        self.keyword_suggestions.setSelectionMode(QAbstractItemView.MultiSelection)
 
         self.style_combo = QComboBox()
         self.style_combo.addItems(sorted(STYLE_PRESETS))
@@ -94,6 +98,10 @@ class MainWindow(QMainWindow):
         self.shadow_spin = self.double_spin(0.0, 12.0, 0.1)
         self.alignment_spin = self.int_spin(1, 9)
         self.border_style_spin = self.int_spin(1, 3)
+        self.batch_styles_list = QListWidget()
+        self.batch_styles_list.setSelectionMode(QAbstractItemView.MultiSelection)
+        for name in sorted(STYLE_PRESETS):
+            self.batch_styles_list.addItem(name)
 
         self.video_label = QLabel("No video imported")
         self.project_label = QLabel("Untitled project")
@@ -174,6 +182,21 @@ class MainWindow(QMainWindow):
             button.clicked.connect(handler)
             controls.addWidget(button)
         layout.addLayout(controls)
+
+        suggestions = QGroupBox("Keyword Suggestions")
+        suggestions_layout = QVBoxLayout(suggestions)
+        suggestions_layout.addWidget(self.keyword_suggestions)
+        suggestion_controls = QHBoxLayout()
+        for label, handler in (
+            ("Suggest", self.refresh_keyword_suggestions),
+            ("Add Selected", self.add_selected_keyword_suggestions),
+            ("Ignore Selected", self.ignore_selected_keyword_suggestions),
+        ):
+            button = QPushButton(label)
+            button.clicked.connect(handler)
+            suggestion_controls.addWidget(button)
+        suggestions_layout.addLayout(suggestion_controls)
+        layout.addWidget(suggestions)
         return box
 
     def build_style_export_box(self) -> QGroupBox:
@@ -221,11 +244,14 @@ class MainWindow(QMainWindow):
         layout.addLayout(style_buttons)
 
         layout.addWidget(self.video_label)
+        layout.addWidget(QLabel("Batch overlay presets"))
+        layout.addWidget(self.batch_styles_list)
 
         for label, handler in (
             ("Export ASS", self.export_ass),
             ("Export Green Overlay", self.export_green_overlay),
             ("Export 5s Preview", self.export_preview_segment),
+            ("Export Selected Presets", self.export_selected_presets),
             ("Burn Video", self.export_burned_video),
         ):
             button = QPushButton(label)
@@ -253,6 +279,7 @@ class MainWindow(QMainWindow):
         self.project.cues = cues
         self.current_index = 0 if cues else None
         self.refresh_view()
+        self.refresh_keyword_suggestions()
         self.autosave_project()
         self.status_label.setText(f"Imported {len(cues)} subtitle cues")
 
@@ -540,6 +567,60 @@ class MainWindow(QMainWindow):
         self.autosave_project()
         self.status_label.setText(f"Added global keyword: {selected}")
 
+    def refresh_keyword_suggestions(self) -> None:
+        self.keyword_suggestions.clear()
+        if not self.project.cues:
+            self.status_label.setText("Import subtitles before suggesting keywords")
+            return
+        existing = {rule.text for rule in self.project.keyword_rules}
+        suggestions = [
+            keyword
+            for keyword in auto_keywords(self.project.cues, limit=24)
+            if keyword not in existing
+        ]
+        for keyword in suggestions:
+            self.keyword_suggestions.addItem(keyword)
+        self.status_label.setText(f"Suggested {len(suggestions)} keywords")
+
+    def add_selected_keyword_suggestions(self) -> None:
+        selected = [item.text() for item in self.keyword_suggestions.selectedItems()]
+        if not selected:
+            self.status_label.setText("Select suggested keywords first")
+            return
+        existing = {rule.text for rule in self.project.keyword_rules}
+        added = 0
+        for keyword in selected:
+            if keyword not in existing:
+                self.project.keyword_rules.append(KeywordRule(text=keyword))
+                existing.add(keyword)
+                added += 1
+        self.ignore_selected_keyword_suggestions(update_status=False)
+        self.autosave_project()
+        self.status_label.setText(f"Added {added} keyword rules")
+
+    def ignore_selected_keyword_suggestions(
+        self,
+        checked: bool = False,
+        *,
+        update_status: bool = True,
+    ) -> None:
+        del checked
+        rows = sorted(
+            {
+                self.keyword_suggestions.row(item)
+                for item in self.keyword_suggestions.selectedItems()
+            },
+            reverse=True,
+        )
+        if not rows:
+            if update_status:
+                self.status_label.setText("Select suggested keywords first")
+            return
+        for row in rows:
+            self.keyword_suggestions.takeItem(row)
+        if update_status:
+            self.status_label.setText(f"Ignored {len(rows)} suggestions")
+
     def export_ass(self) -> None:
         if not self.project.cues:
             self.status_label.setText("Import subtitles first")
@@ -593,6 +674,60 @@ class MainWindow(QMainWindow):
             )
         except Exception as exc:
             self.show_error("Failed to export overlay", exc)
+
+    def export_selected_presets(self) -> None:
+        if not self.project.cues:
+            self.status_label.setText("Import subtitles first")
+            return
+        if not self.ensure_ffmpeg_ready():
+            return
+        style_names = [item.text() for item in self.batch_styles_list.selectedItems()]
+        if not style_names:
+            self.status_label.setText("Select one or more batch presets")
+            return
+        directory = QFileDialog.getExistingDirectory(self, "Export Batch Overlays", "")
+        if not directory:
+            return
+        try:
+            self.commit_editor_text()
+            output_dir = Path(directory)
+            width, height = self.export_size()
+            duration = self.export_duration()
+            fps = int(self.project.export_settings.get("fps", 30))
+            cues = list(self.project.cues)
+            keywords = [rule.text for rule in self.project.keyword_rules if rule.enabled]
+            base_name = Path(self.project.srt_path or "subtitles.srt").stem
+
+            def job() -> None:
+                for style_name in style_names:
+                    preset = merge_style_preset(preset_name=style_name)
+                    ass_path = output_dir / f"{base_name}.{style_name}.ass"
+                    overlay_path = output_dir / f"{base_name}.{style_name}.mov"
+                    write_ass(
+                        cues,
+                        keywords,
+                        ass_path,
+                        width=width,
+                        height=height,
+                        preset=preset,
+                    )
+                    write_keyword_report(keywords, ass_path.with_suffix(".keywords.md"), cues)
+                    render_overlay(
+                        ass_path,
+                        overlay_path,
+                        width=width,
+                        height=height,
+                        duration=duration,
+                        fps=fps,
+                    )
+
+            self.start_export(
+                "Exporting selected presets...",
+                job,
+                f"Exported {len(style_names)} preset overlays",
+            )
+        except Exception as exc:
+            self.show_error("Failed to export selected presets", exc)
 
     def export_burned_video(self) -> None:
         if not self.project.video_path:

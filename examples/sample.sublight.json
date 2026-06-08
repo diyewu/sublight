@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "srt_path": null,
-  "video_path": null,
+  "srt_path": "sample.srt",
+  "video_path": "sample-video.mp4",
   "cues": [
     {
       "id": "sample-1",
@@ -23,13 +23,28 @@
       "index": 2,
       "start_ms": 2200,
       "end_ms": 4300,
-      "text": "Choose a style and export a video",
+      "text": "Choose a style and export an overlay",
+      "manual_highlights": []
+    },
+    {
+      "id": "sample-3",
+      "index": 3,
+      "start_ms": 4000,
+      "end_ms": 5800,
+      "text": "Bring the result back into your video editor",
       "manual_highlights": []
     }
   ],
   "keyword_rules": [
     {
       "text": "style",
+      "case_sensitive": false,
+      "match_whole_word": true,
+      "enabled": true,
+      "style_role": "keyword"
+    },
+    {
+      "text": "overlay",
       "case_sensitive": false,
       "match_whole_word": true,
       "enabled": true,

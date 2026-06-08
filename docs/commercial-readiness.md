@@ -4,7 +4,7 @@ This document tracks what SubLight needs before it can be considered usable by n
 
 ## Current Position
 
-SubLight has a working CLI, reusable core modules, a desktop GUI MVP, project files, editable styles, asynchronous exports, best-effort autosave recovery, packaging scaffolding, and public contribution templates.
+SubLight has a working CLI, reusable core modules, a desktop GUI MVP, project files, editable styles, asynchronous exports, keyword suggestion controls, batch preset overlay export, best-effort autosave recovery, sample assets, a static landing page, packaging scaffolding, and public contribution templates.
 
 The product is still alpha. It should be treated as an open-source prototype moving toward commercial quality, not a finished paid product.
 
@@ -14,21 +14,17 @@ The product is still alpha. It should be treated as an open-source prototype mov
 - Reliable Windows desktop build from GitHub Releases.
 - Verified GUI smoke test on at least one macOS machine and one Windows machine.
 - Clear `ffmpeg` setup path for non-technical users.
-- Built-in sample project with sample SRT and tiny sample video.
-- Better keyword suggestion UI with accept/reject controls.
 - Export validation that warns when video dimensions or durations are missing.
 - More complete GUI tests for project editing and style editing.
 - Tutorial video showing one complete workflow.
 
 ## Should-Have Before Paid or Commercial Distribution
 
-- Product landing page.
 - Installer signing or notarization plan for macOS.
 - Windows code signing plan.
 - Crash/error reporting policy that respects local creator files.
 - Privacy policy explaining that local files stay local.
 - Versioned project file migration tests.
-- Export queue for batch style rendering.
 - Style preview panel before full export.
 - Preset library designed around creator use cases.
 - Clear support channel and response expectations.

@@ -15,6 +15,8 @@ It turns ordinary `.srt` subtitles into keyword-highlighted `.ass` subtitles, gr
 - Burn highlighted subtitles directly into a final video.
 - Switch visual styles with built-in presets.
 - Override styles with JSON.
+- Review suggested keywords in the GUI and add selected terms globally.
+- Batch-export green-screen overlays from multiple built-in presets.
 
 ## Requirements
 
@@ -232,6 +234,7 @@ In practice, the burned-in video and green-screen overlay are often more reliabl
 SubLight is moving from a CLI prototype toward a commercial-ready desktop app.
 
 - [Getting started](docs/getting-started.md)
+- [Landing page](site/index.html)
 - [Product plan](docs/product-plan.md)
 - [Architecture](docs/architecture.md)
 - [Development plan](docs/development-plan.md)

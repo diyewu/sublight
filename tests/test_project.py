@@ -7,8 +7,12 @@ from pathlib import Path
 
 from sublight.core.models import Cue, HighlightSpan, KeywordRule, Project
 from sublight.core.project import load_project, save_project
+from sublight.core.srt import parse_srt
 from sublight.styles.ass import render_ass
 from sublight.styles.presets import merge_style_preset
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class ProjectTests(unittest.TestCase):
@@ -80,6 +84,19 @@ class ProjectTests(unittest.TestCase):
         ass = render_ass([cue], [], width=1280, height=720, preset=preset)
 
         self.assertIn(r"{\b1\c&H0000D4FF&\3c&H00000000&\bord4}Codex{\rDefault}", ass)
+
+    def test_example_project_and_srt_are_loadable(self) -> None:
+        project = load_project(ROOT / "examples" / "sample.sublight.json")
+        cues = parse_srt(ROOT / "examples" / "sample.srt")
+
+        self.assertEqual(project.srt_path, str((ROOT / "examples" / "sample.srt").resolve()))
+        self.assertEqual(
+            project.video_path,
+            str((ROOT / "examples" / "sample-video.mp4").resolve()),
+        )
+        self.assertEqual(len(project.cues), 3)
+        self.assertEqual(len(cues), 3)
+        self.assertTrue(Path(project.video_path).exists())
 
 
 if __name__ == "__main__":

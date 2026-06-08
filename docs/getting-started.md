@@ -39,11 +39,13 @@ brew install ffmpeg
 5. Select a word or phrase in the cue editor.
 6. Click `Highlight Selection` for a manual highlight.
 7. Click `Apply Selection Globally` if the phrase should be highlighted everywhere.
-8. Choose or edit a style preset.
-9. Export one of these outputs:
+8. Use `Suggest` to review automatic keyword candidates, then add or ignore selected suggestions.
+9. Choose or edit a style preset.
+10. Export one of these outputs:
    - `Export ASS`
    - `Export Green Overlay`
    - `Export 5s Preview`
+   - `Export Selected Presets`
    - `Burn Video`
 
 Project files can be saved as `.sublight.json` and reopened later. SubLight also keeps a best-effort autosave in the user config directory.
@@ -81,6 +83,17 @@ sublight input.srt \
   --video input.mp4 \
   --burn-output final.highlighted.mp4
 ```
+
+## Try the Example Assets
+
+The repository includes:
+
+- `examples/sample.srt`
+- `examples/sample-video.mp4`
+- `examples/sample.sublight.json`
+- `examples/cyan-style.json`
+
+Use them to smoke-test the CLI or GUI before trying your own files.
 
 ## Choosing Export Modes
 
@@ -121,4 +134,3 @@ ffprobe -version
 ```
 
 If subtitles are invisible in an editor, try the green-screen overlay mode and remove the green background with chroma key.
-

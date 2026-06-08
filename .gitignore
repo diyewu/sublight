@@ -19,6 +19,9 @@ build/
 *.png
 *.jpg
 *.jpeg
+!examples/sample.srt
+!examples/sample-video.mp4
+!site/assets/sublight-demo.png
 
 # Local editor and OS files
 .DS_Store
