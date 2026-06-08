@@ -1,6 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass(frozen=True)
+class HighlightSpan:
+    start: int
+    end: int
+    style_role: str = "keyword"
+    source: str = "manual"
 
 
 @dataclass(frozen=True)
@@ -9,14 +18,8 @@ class Cue:
     start_ms: int
     end_ms: int
     text: str
-
-
-@dataclass(frozen=True)
-class HighlightSpan:
-    start: int
-    end: int
-    style_role: str = "keyword"
-    source: str = "keyword"
+    id: str | None = None
+    manual_highlights: tuple[HighlightSpan, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -36,3 +39,5 @@ class Project:
     cues: list[Cue] = field(default_factory=list)
     keyword_rules: list[KeywordRule] = field(default_factory=list)
     active_style: str = "bold-yellow"
+    custom_styles: dict[str, dict[str, Any]] = field(default_factory=dict)
+    export_settings: dict[str, Any] = field(default_factory=dict)

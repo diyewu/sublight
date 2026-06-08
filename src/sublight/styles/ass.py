@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 from sublight.core.highlights import find_keyword_spans
-from sublight.core.models import Cue
+from sublight.core.models import Cue, HighlightSpan
 
 from .schema import StylePreset
 
@@ -93,8 +93,37 @@ def wrap_cjk_line(text: str, max_width: int) -> str:
     return "\n".join(line for line in lines if line)
 
 
-def style_text(text: str, keywords: list[str], preset: StylePreset) -> str:
-    spans = find_keyword_spans(text, keywords)
+def merged_highlight_spans(
+    text: str,
+    keywords: list[str],
+    manual_spans: tuple[HighlightSpan, ...] = (),
+) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+
+    for span in sorted(manual_spans, key=lambda item: (item.start, item.end)):
+        start = max(0, min(span.start, len(text)))
+        end = max(0, min(span.end, len(text)))
+        if start >= end:
+            continue
+        if any(not (end <= a or start >= b) for a, b in spans):
+            continue
+        spans.append((start, end))
+
+    for start, end in find_keyword_spans(text, keywords):
+        if any(not (end <= a or start >= b) for a, b in spans):
+            continue
+        spans.append((start, end))
+
+    return sorted(spans)
+
+
+def style_text(
+    text: str,
+    keywords: list[str],
+    preset: StylePreset,
+    manual_spans: tuple[HighlightSpan, ...] = (),
+) -> str:
+    spans = merged_highlight_spans(text, keywords, manual_spans)
     if not spans:
         return ass_escape(text)
 
@@ -147,7 +176,8 @@ def render_ass(
     lines = [header]
     for cue in cues:
         wrapped = wrap_cjk_line(cue.text, preset.max_line_width)
-        styled = style_text(wrapped, keywords, preset)
+        manual_spans = cue.manual_highlights if wrapped == cue.text else ()
+        styled = style_text(wrapped, keywords, preset, manual_spans)
         lines.append(
             "Dialogue: 0,{start},{end},Default,,0,0,0,,{text}\n".format(
                 start=ass_time(cue.start_ms),
