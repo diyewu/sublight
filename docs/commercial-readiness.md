@@ -10,8 +10,8 @@ The product is still alpha. It should be treated as an open-source prototype mov
 
 ## Must-Have Before Public Beta
 
-- Reliable macOS desktop build from GitHub Releases. Validated in `v0.1.0-alpha.5`.
-- Reliable Windows desktop build from GitHub Releases. Validated in `v0.1.0-alpha.5`.
+- Reliable macOS desktop build from GitHub Releases. Validated in `v0.1.0-alpha.6`.
+- Reliable Windows desktop build from GitHub Releases. Validated in `v0.1.0-alpha.6`.
 - Verified GUI smoke test on at least one macOS machine and one Windows machine.
 - Clear `ffmpeg` setup path for non-technical users.
 - Export validation that warns when video dimensions or durations are missing.

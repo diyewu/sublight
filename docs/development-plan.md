@@ -100,7 +100,7 @@ Key outputs:
 - App icon asset.
 - Recent project config.
 - Example project and style files.
-- Validated `v0.1.0-alpha.5` GitHub Release with macOS and Windows zip artifacts.
+- Validated `v0.1.0-alpha.6` GitHub Release with macOS and Windows zip artifacts.
 
 ## M7: Commercial Readiness
 
