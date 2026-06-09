@@ -7,6 +7,7 @@ from dataclasses import dataclass
 class StylePreset:
     font: str = "STHeiti"
     font_size: int = 54
+    keyword_font_size: int | None = None
     margin_v: int = 82
     max_line_width: int = 34
     primary_color: str = "#FFFFFF"
@@ -23,3 +24,8 @@ class StylePreset:
     shadow: float = 0.0
     alignment: int = 2
     border_style: int = 1
+
+    def resolved_keyword_font_size(self) -> int:
+        if self.keyword_font_size is not None:
+            return self.keyword_font_size
+        return round(self.font_size * self.keyword_scale)

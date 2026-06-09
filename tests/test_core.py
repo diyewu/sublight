@@ -97,6 +97,24 @@ class StyleTests(unittest.TestCase):
         self.assertIn("PlayResX: 1280", ass)
         self.assertIn(r"{\b1\c&H0000D4FF&\3c&H00000000&\bord4}Codex{\rDefault}", ass)
 
+    def test_render_ass_uses_independent_keyword_font_size(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "sample.srt"
+            path.write_text(
+                "1\n00:00:00,000 --> 00:00:01,500\nHello Codex\n",
+                encoding="utf-8",
+            )
+            cues = parse_srt(path)
+        preset = merge_style_preset(
+            preset_name="bold-yellow",
+            overrides={"font_size": 42, "keyword_font_size": 64},
+        )
+
+        ass = render_ass(cues, ["Codex"], width=1280, height=720, preset=preset)
+
+        self.assertIn(r"\fs64", ass)
+        self.assertIn("Style: Default,STHeiti,42", ass)
+
 
 if __name__ == "__main__":
     unittest.main()

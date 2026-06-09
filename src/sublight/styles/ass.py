@@ -135,8 +135,9 @@ def style_text(
         r"\3c" + ass_color(preset.keyword_outline_color),
         rf"\bord{preset.keyword_outline:g}",
     ]
-    if preset.keyword_scale != 1.0:
-        tag_parts.append(rf"\fs{round(preset.font_size * preset.keyword_scale)}")
+    keyword_font_size = preset.resolved_keyword_font_size()
+    if preset.keyword_font_size is not None or keyword_font_size != preset.font_size:
+        tag_parts.append(rf"\fs{keyword_font_size}")
     start_tag = "{" + "".join(tag_parts) + "}"
     end_tag = r"{\rDefault}"
     for start, end in spans:

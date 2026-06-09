@@ -52,6 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--font")
     parser.add_argument("--font-size", type=int)
+    parser.add_argument("--keyword-font-size", type=int)
     parser.add_argument("--margin-v", type=int)
     parser.add_argument("--max-line-width", type=int)
     parser.add_argument("--highlight-color")
@@ -64,6 +65,7 @@ def style_overrides_from_args(args: argparse.Namespace) -> dict[str, object]:
     return {
         "font": args.font,
         "font_size": args.font_size,
+        "keyword_font_size": args.keyword_font_size,
         "margin_v": args.margin_v,
         "max_line_width": args.max_line_width,
         "highlight_color": args.highlight_color,

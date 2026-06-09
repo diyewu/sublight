@@ -1,6 +1,7 @@
 {
   "font": "STHeiti",
   "font_size": 56,
+  "keyword_font_size": 64,
   "margin_v": 76,
   "max_line_width": 30,
   "primary_color": "#FFFFFF",
@@ -11,7 +12,7 @@
   "back_alpha": 127,
   "bold": true,
   "keyword_bold": true,
-  "keyword_scale": 1.06,
+  "keyword_scale": 1.0,
   "outline": 3.2,
   "keyword_outline": 4.8,
   "shadow": 0.0,

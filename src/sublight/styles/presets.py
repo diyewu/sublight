@@ -90,6 +90,7 @@ def style_preset_lines() -> list[str]:
     for name, preset in STYLE_PRESETS.items():
         lines.append(
             f"{name}: font_size={preset.font_size}, "
+            f"keyword_font_size={preset.resolved_keyword_font_size()}, "
             f"highlight={preset.highlight_color}, outline={preset.outline}, "
             f"box={'yes' if preset.border_style == 3 else 'no'}"
         )

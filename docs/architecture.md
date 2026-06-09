@@ -89,6 +89,7 @@ Fields should match the existing CLI style model:
 
 - `font`
 - `font_size`
+- `keyword_font_size`
 - `margin_v`
 - `max_line_width`
 - `primary_color`

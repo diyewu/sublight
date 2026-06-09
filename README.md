@@ -174,6 +174,7 @@ You can override any style preset with a JSON file:
 ```json
 {
   "font_size": 58,
+  "keyword_font_size": 66,
   "margin_v": 72,
   "max_line_width": 30,
   "primary_color": "#FFFFFF",
@@ -182,7 +183,7 @@ You can override any style preset with a JSON file:
   "keyword_outline_color": "#001018",
   "outline": 3.2,
   "keyword_outline": 4.8,
-  "keyword_scale": 1.06
+  "keyword_scale": 1.0
 }
 ```
 
@@ -200,6 +201,7 @@ Supported style fields:
 ```text
 font
 font_size
+keyword_font_size
 margin_v
 max_line_width
 primary_color

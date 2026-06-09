@@ -133,6 +133,7 @@ class MainWindow(QMainWindow):
         self.custom_style_name.setPlaceholderText("自定义样式名称")
         self.font_input = QLineEdit()
         self.font_size_spin = self.int_spin(8, 180)
+        self.keyword_font_size_spin = self.int_spin(8, 220)
         self.margin_v_spin = self.int_spin(0, 400)
         self.max_line_width_spin = self.int_spin(8, 80)
         self.primary_color_input = QLineEdit()
@@ -143,7 +144,6 @@ class MainWindow(QMainWindow):
         self.back_alpha_spin = self.int_spin(0, 255)
         self.bold_check = QCheckBox("普通文字加粗")
         self.keyword_bold_check = QCheckBox("高亮文字加粗")
-        self.keyword_scale_spin = self.double_spin(0.5, 2.0, 0.01)
         self.outline_spin = self.double_spin(0.0, 12.0, 0.1)
         self.keyword_outline_spin = self.double_spin(0.0, 14.0, 0.1)
         self.shadow_spin = self.double_spin(0.0, 12.0, 0.1)
@@ -256,31 +256,41 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.style_combo)
         layout.addWidget(self.custom_style_name)
 
-        style_grid = QGridLayout()
-        style_fields = [
+        global_style = QGroupBox("全局字幕")
+        global_grid = QGridLayout(global_style)
+        global_fields = [
             ("字体", self.font_input),
-            ("字号", self.font_size_spin),
-            ("底部边距", self.margin_v_spin),
-            ("最大行宽", self.max_line_width_spin),
+            ("普通字号", self.font_size_spin),
             ("普通颜色", self.primary_color_input),
-            ("高亮颜色", self.highlight_color_input),
             ("描边颜色", self.outline_color_input),
-            ("高亮描边", self.keyword_outline_color_input),
             ("底框颜色", self.back_color_input),
             ("底框透明度", self.back_alpha_spin),
-            ("高亮缩放", self.keyword_scale_spin),
             ("描边粗细", self.outline_spin),
-            ("高亮描边粗细", self.keyword_outline_spin),
             ("阴影", self.shadow_spin),
+            ("底部边距", self.margin_v_spin),
+            ("最大行宽", self.max_line_width_spin),
             ("对齐", self.alignment_spin),
             ("边框样式", self.border_style_spin),
         ]
-        for row, (label, widget) in enumerate(style_fields):
-            style_grid.addWidget(QLabel(label), row, 0)
-            style_grid.addWidget(widget, row, 1)
-        layout.addLayout(style_grid)
-        layout.addWidget(self.bold_check)
-        layout.addWidget(self.keyword_bold_check)
+        for row, (label, widget) in enumerate(global_fields):
+            global_grid.addWidget(QLabel(label), row, 0)
+            global_grid.addWidget(widget, row, 1)
+        global_grid.addWidget(self.bold_check, len(global_fields), 0, 1, 2)
+        layout.addWidget(global_style)
+
+        highlight_style = QGroupBox("高亮字幕")
+        highlight_grid = QGridLayout(highlight_style)
+        highlight_fields = [
+            ("高亮字号", self.keyword_font_size_spin),
+            ("高亮颜色", self.highlight_color_input),
+            ("高亮描边", self.keyword_outline_color_input),
+            ("高亮描边粗细", self.keyword_outline_spin),
+        ]
+        for row, (label, widget) in enumerate(highlight_fields):
+            highlight_grid.addWidget(QLabel(label), row, 0)
+            highlight_grid.addWidget(widget, row, 1)
+        highlight_grid.addWidget(self.keyword_bold_check, len(highlight_fields), 0, 1, 2)
+        layout.addWidget(highlight_style)
 
         style_buttons = QHBoxLayout()
         for label, handler in (
@@ -489,12 +499,12 @@ class MainWindow(QMainWindow):
             line_edit.textChanged.connect(self.refresh_style_preview)
         for spin in (
             self.font_size_spin,
+            self.keyword_font_size_spin,
             self.margin_v_spin,
             self.max_line_width_spin,
             self.back_alpha_spin,
             self.alignment_spin,
             self.border_style_spin,
-            self.keyword_scale_spin,
             self.outline_spin,
             self.keyword_outline_spin,
             self.shadow_spin,
@@ -528,6 +538,7 @@ class MainWindow(QMainWindow):
     def load_style_into_editor(self, preset: StylePreset) -> None:
         self.font_input.setText(preset.font)
         self.font_size_spin.setValue(preset.font_size)
+        self.keyword_font_size_spin.setValue(preset.resolved_keyword_font_size())
         self.margin_v_spin.setValue(preset.margin_v)
         self.max_line_width_spin.setValue(preset.max_line_width)
         self.primary_color_input.setText(preset.primary_color)
@@ -538,7 +549,6 @@ class MainWindow(QMainWindow):
         self.back_alpha_spin.setValue(preset.back_alpha)
         self.bold_check.setChecked(preset.bold)
         self.keyword_bold_check.setChecked(preset.keyword_bold)
-        self.keyword_scale_spin.setValue(preset.keyword_scale)
         self.outline_spin.setValue(preset.outline)
         self.keyword_outline_spin.setValue(preset.keyword_outline)
         self.shadow_spin.setValue(preset.shadow)
@@ -561,6 +571,7 @@ class MainWindow(QMainWindow):
         escaped_keyword = html.escape(keyword)
         highlighted = (
             f"<span style='color: {preset.highlight_color}; "
+            f"font-size: {max(16, min(40, int(preset.resolved_keyword_font_size() * 0.48)))}px; "
             f"font-weight: {700 if preset.keyword_bold else 500};'>"
             f"{escaped_keyword}</span>"
         )
@@ -585,6 +596,7 @@ class MainWindow(QMainWindow):
         return StylePreset(
             font=self.font_input.text().strip() or "STHeiti",
             font_size=self.font_size_spin.value(),
+            keyword_font_size=self.keyword_font_size_spin.value(),
             margin_v=self.margin_v_spin.value(),
             max_line_width=self.max_line_width_spin.value(),
             primary_color=self.primary_color_input.text().strip() or "#FFFFFF",
@@ -596,7 +608,7 @@ class MainWindow(QMainWindow):
             back_alpha=self.back_alpha_spin.value(),
             bold=self.bold_check.isChecked(),
             keyword_bold=self.keyword_bold_check.isChecked(),
-            keyword_scale=self.keyword_scale_spin.value(),
+            keyword_scale=1.0,
             outline=self.outline_spin.value(),
             keyword_outline=self.keyword_outline_spin.value(),
             shadow=self.shadow_spin.value(),
@@ -660,7 +672,7 @@ class MainWindow(QMainWindow):
         text_format = QTextCharFormat()
         text_format.setFontFamily(preset.font)
         text_format.setFontPointSize(
-            max(13, min(34, display_size * preset.keyword_scale))
+            max(13, min(34, int(preset.resolved_keyword_font_size() * 0.42)))
             if highlighted
             else display_size
         )
